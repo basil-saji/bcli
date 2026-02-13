@@ -1,35 +1,21 @@
-import asyncio
-import uuid
-from rtc import init_rtc, channel
-from config import USERNAME
+from broadcaster import Broadcaster
 
-def on_message(payload):
-    data = payload["payload"]
-    sender = data["from"]
-    msg = data["content"]
+SUPABASE_URL = "https://wqqckkuycvthvizcwfgn.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcWNra3V5Y3Z0aHZpemN3ZmduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxNDcxMDYsImV4cCI6MjA4MTcyMzEwNn0.d2mfBuqKG8g4NSLb-EMCnzd-U-_mH35FwOxsbjbuGQ8"
 
-    print(f"\n[{sender}] {msg}")
+room = input("Room id: ")
+username = input("Username: ")
 
-async def main():
-    await init_rtc(on_message)
+bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room)
 
-    print("Connected. Start typing...\n")
+print("Connected. Start typing...\n")
 
-    while True:
-        text = input("> ")
+while True:
+    text = input("> ")
 
-        payload = {
-            "id": str(uuid.uuid4()),
-            "from": USERNAME,
-            "content": text
-        }
+    bc.send({
+        "from": username,
+        "content": text
+    })
 
-        await channel.send({
-            "type": "broadcast",
-            "event": "msg",
-            "payload": payload
-        })
-
-        print(f"[me] {text}")
-
-asyncio.run(main())
+    print(f"[me] {text}")
