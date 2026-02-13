@@ -31,8 +31,6 @@ class Broadcaster:
     async def _init_async(self, url: str, key: str):
         try:
             self.client = await create_async_client(url, key)
-
-            # Join if exists, create if not
             self.channel = self.client.channel(f"room_{self.room}")
 
             # RECEIVE messages
@@ -41,7 +39,7 @@ class Broadcaster:
                 sender = data["from"]
                 msg = data["content"]
 
-                # Ignore our own messages (prevents duplicate)
+                # Ignore our own messages
                 if sender == self.username:
                     return
 
@@ -51,11 +49,12 @@ class Broadcaster:
                 print("> ", end="", flush=True)
 
             self.channel.on_broadcast("msg", on_msg)
-
             await self.channel.subscribe()
 
             self.enabled = True
-            print(f"Connected to room_{self.room}")
+
+            # PRINT CONNECTED ONLY ONCE HERE
+            print(f"\n> Connected to room {self.room}")
 
         except Exception as e:
             print(f"Init failed: {e}")
