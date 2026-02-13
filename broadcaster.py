@@ -39,22 +39,19 @@ class Broadcaster:
                 sender = data["from"]
                 msg = data["content"]
 
-                # Ignore our own messages
                 if sender == self.username:
                     return
 
                 color = self._color_for_user(sender)
 
+                # Print message on new clean line
                 print(f"\n{color}[{sender}]{Style.RESET_ALL} {msg}")
-                print("> ", end="", flush=True)
 
             self.channel.on_broadcast("msg", on_msg)
             await self.channel.subscribe()
 
             self.enabled = True
-
-            # PRINT CONNECTED ONLY ONCE HERE
-            print(f"\n> Connected to room {self.room}")
+            print(f"\nConnected to room {self.room}")
 
         except Exception as e:
             print(f"Init failed: {e}")
