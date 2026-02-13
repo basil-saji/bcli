@@ -6,16 +6,21 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 room = input("Room id: ")
 username = input("Username: ")
 
-bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room)
+bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username)
 
 print("Connected. Start typing...\n")
 
 while True:
     text = input("> ")
 
+    # Remove the raw typed line
+    print("\033[A\033[K", end="")
+
     bc.send({
         "from": username,
         "content": text
     })
 
-    print(f"[me] {text}")
+    # Print clean formatted message instead
+    print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {text}")
+    print("> ", end="", flush=True)

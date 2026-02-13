@@ -1,13 +1,17 @@
 import asyncio
 import threading
 from supabase import create_async_client
+from colorama import Fore, Style, init
+
+init(autoreset=True)
 
 
 class Broadcaster:
-    def __init__(self, url: str, key: str, room: str):
+    def __init__(self, url: str, key: str, room: str, username: str):
         self.enabled = False
         self.channel = None
         self.room = room
+        self.username = username
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(
@@ -28,16 +32,25 @@ class Broadcaster:
         try:
             self.client = await create_async_client(url, key)
 
-            # This joins if exists, creates if not
+            # Join if exists, create if not
             self.channel = self.client.channel(f"room_{self.room}")
 
             # RECEIVE messages
-            self.channel.on_broadcast(
-                "msg",
-                lambda payload: print(
-                    f"\n[{payload['payload']['from']}] {payload['payload']['content']}"
-                )
-            )
+            def on_msg(payload):
+                data = payload["payload"]
+                sender = data["from"]
+                msg = data["content"]
+
+                # Ignore our own messages (prevents duplicate)
+                if sender == self.username:
+                    return
+
+                color = self._color_for_user(sender)
+
+                print(f"\n{color}[{sender}]{Style.RESET_ALL} {msg}")
+                print("> ", end="", flush=True)
+
+            self.channel.on_broadcast("msg", on_msg)
 
             await self.channel.subscribe()
 
@@ -48,6 +61,15 @@ class Broadcaster:
             print(f"Init failed: {e}")
             self.enabled = False
             self.channel = None
+
+    def _color_for_user(self, name):
+        colors = [
+            Fore.CYAN,
+            Fore.MAGENTA,
+            Fore.YELLOW,
+            Fore.BLUE
+        ]
+        return colors[hash(name) % len(colors)]
 
     def send(self, payload: dict):
         if not self.enabled or self.channel is None:
