@@ -1,10 +1,10 @@
 import asyncio
 import threading
+import sys
 from supabase import create_async_client
 from colorama import Fore, Style, init
 
 init(autoreset=True)
-
 
 class Broadcaster:
     def __init__(self, url: str, key: str, room: str, username: str):
@@ -19,7 +19,7 @@ class Broadcaster:
             daemon=True
         ).start()
 
-        asyncio.run_coroutine_threadsafe(
+        self.init_task = asyncio.run_coroutine_threadsafe(
             self._init_async(url, key),
             self._loop
         )
@@ -33,7 +33,6 @@ class Broadcaster:
             self.client = await create_async_client(url, key)
             self.channel = self.client.channel(f"room_{self.room}")
 
-            # RECEIVE messages
             def on_msg(payload):
                 data = payload["payload"]
                 sender = data["from"]
@@ -43,28 +42,21 @@ class Broadcaster:
                     return
 
                 color = self._color_for_user(sender)
-
-                # Print message on new clean line
-                print(f"\n{color}[{sender}]{Style.RESET_ALL} {msg}")
+                
+                # UI FIX: \r moves to start, \033[K clears the current prompt line
+                # We only append "> " at the end to restore the line for the user
+                sys.stdout.write(f"\r\033[K{color}[{sender}]{Style.RESET_ALL} {msg}\n> ")
+                sys.stdout.flush()
 
             self.channel.on_broadcast("msg", on_msg)
             await self.channel.subscribe()
-
             self.enabled = True
-            print(f"\nConnected to room {self.room}")
 
         except Exception as e:
-            print(f"Init failed: {e}")
             self.enabled = False
-            self.channel = None
 
     def _color_for_user(self, name):
-        colors = [
-            Fore.CYAN,
-            Fore.MAGENTA,
-            Fore.YELLOW,
-            Fore.BLUE
-        ]
+        colors = [Fore.CYAN, Fore.MAGENTA, Fore.YELLOW, Fore.BLUE]
         return colors[hash(name) % len(colors)]
 
     def send(self, payload: dict):
@@ -74,7 +66,7 @@ class Broadcaster:
         async def _send():
             try:
                 await self.channel.send_broadcast("msg", payload)
-            except Exception as e:
-                print(f"Send error: {e}")
+            except Exception:
+                pass
 
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
