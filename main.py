@@ -1,22 +1,35 @@
-from rtc import channel
-from config import USERNAME
+import asyncio
 import uuid
+from rtc import init_rtc, channel
+from config import USERNAME
 
-print("Connected. Type messages.\n")
+def on_message(payload):
+    data = payload["payload"]
+    sender = data["from"]
+    msg = data["content"]
 
-while True:
-    text = input("> ")
+    print(f"\n[{sender}] {msg}")
 
-    payload = {
-        "id": str(uuid.uuid4()),
-        "from": USERNAME,
-        "content": text
-    }
+async def main():
+    await init_rtc(on_message)
 
-    channel.send({
-        "type": "broadcast",
-        "event": "msg",
-        "payload": payload
-    })
+    print("Connected. Start typing...\n")
 
-    print(f"[me] {text}")
+    while True:
+        text = input("> ")
+
+        payload = {
+            "id": str(uuid.uuid4()),
+            "from": USERNAME,
+            "content": text
+        }
+
+        await channel.send({
+            "type": "broadcast",
+            "event": "msg",
+            "payload": payload
+        })
+
+        print(f"[me] {text}")
+
+asyncio.run(main())

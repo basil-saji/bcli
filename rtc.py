@@ -1,15 +1,17 @@
-from supabase import create_client
+import asyncio
+from supabase import acreate_client
 from config import SUPABASE_URL, SUPABASE_KEY, ROOM
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-channel = supabase.channel(ROOM)
+supabase = None
+channel = None
 
-def on_message(payload):
-    data = payload["payload"]
-    sender = data["from"]
-    msg = data["content"]
+async def init_rtc(on_message):
+    global supabase, channel
 
-    print(f"\n[{sender}] {msg}")
+    supabase = await acreate_client(SUPABASE_URL, SUPABASE_KEY)
 
-channel.on_broadcast("msg", on_message)
-channel.subscribe()
+    channel = supabase.channel(ROOM)
+
+    channel.on_broadcast("msg", on_message)
+
+    await channel.subscribe()
