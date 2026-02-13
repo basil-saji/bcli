@@ -7,22 +7,17 @@ from colorama import Fore, Style, init
 init(autoreset=True)
 
 class Broadcaster:
-    def __init__(self, url: str, key: str, room: str, username: str):
+    def __init__(self, url: str, key: str, room: str, username: str, terminal_lock):
         self.enabled = False
         self.channel = None
         self.room = room
         self.username = username
+        self.terminal_lock = terminal_lock # Shared lock for thread-safe printing
 
         self._loop = asyncio.new_event_loop()
-        threading.Thread(
-            target=self._run_loop,
-            daemon=True
-        ).start()
+        threading.Thread(target=self._run_loop, daemon=True).start()
 
-        self.init_task = asyncio.run_coroutine_threadsafe(
-            self._init_async(url, key),
-            self._loop
-        )
+        asyncio.run_coroutine_threadsafe(self._init_async(url, key), self._loop)
 
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
@@ -43,16 +38,17 @@ class Broadcaster:
 
                 color = self._color_for_user(sender)
                 
-                # UI FIX: \r moves to start, \033[K clears the current prompt line
-                # We only append "> " at the end to restore the line for the user
-                sys.stdout.write(f"\r\033[K{color}[{sender}]{Style.RESET_ALL} {msg}\n> ")
-                sys.stdout.flush()
+                with self.terminal_lock:
+                    # Move to start of line, clear it, print message
+                    sys.stdout.write(f"\r\033[K{color}[{sender}]{Style.RESET_ALL} {msg}\n")
+                    # Re-print the prompt and current buffer (handled in main.py)
+                    sys.stdout.write("> ") 
+                    sys.stdout.flush()
 
             self.channel.on_broadcast("msg", on_msg)
             await self.channel.subscribe()
             self.enabled = True
-
-        except Exception as e:
+        except Exception:
             self.enabled = False
 
     def _color_for_user(self, name):
@@ -68,5 +64,4 @@ class Broadcaster:
                 await self.channel.send_broadcast("msg", payload)
             except Exception:
                 pass
-
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
