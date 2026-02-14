@@ -235,15 +235,18 @@ def run_cli():
                         elif cmd == "kill":
                             if len(parts) > 1 and parts[1] == "-s":
                                 sys.stdout.write(f"{Fore.RED}System: Wiping all program data and files...{Style.RESET_ALL}\r\n")
-                                base_path = os.path.dirname(os.path.abspath(__file__))
-                                if os.path.exists(os.path.join(base_path, MEMORY_FILE)):
-                                    os.remove(os.path.join(base_path, MEMORY_FILE))
-                                if os.path.exists(os.path.join(base_path, bc.download_dir)):
-                                    shutil.rmtree(os.path.join(base_path, bc.download_dir))
-                                for f in ["main.py","broadcaster.py","VERSION","requirements.txt",".gitignore","GUIDE.txt","README.md"]:
-                                    full_f = os.path.join(base_path, f)
-                                    if os.path.exists(full_f):
-                                        os.remove(full_f)
+
+                                install_dir = os.path.expanduser("~/.bcli")
+
+                                try:
+                                    if os.path.exists(install_dir):
+                                        shutil.rmtree(install_dir)
+                                        sys.stdout.write(f"{Fore.YELLOW}Removed install directory: {install_dir}{Style.RESET_ALL}\r\n")
+                                    else:
+                                        sys.stdout.write(f"{Fore.YELLOW}Install directory not found.{Style.RESET_ALL}\r\n")
+                                except Exception as e:
+                                    sys.stdout.write(f"{Fore.RED}Failed to remove install: {e}{Style.RESET_ALL}\r\n")
+
                                 sys.stdout.write(f"{Fore.YELLOW}System: Program removed. Goodbye.{Style.RESET_ALL}\r\n")
                                 sys.exit(0)
                             else:
