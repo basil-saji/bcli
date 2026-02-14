@@ -18,6 +18,7 @@ except ImportError:
 
 init(autoreset=True)
 MEMORY_FILE = "memory.json"
+#
 SUPABASE_URL = "https://wqqckkuycvthvizcwfgn.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcWNra3V5Y3Z0aHZpemN3ZmduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxNDcxMDYsImV4cCI6MjA4MTcyMzEwNn0.d2mfBuqKG8g4NSLb-EMCnzd-U-_mH35FwOxsbjbuGQ8"
 
@@ -45,7 +46,7 @@ def run_cli():
     input_buffer = ""
     terminal_lock = threading.Lock()
     
-    # Mode states
+    # State tracking for multiline code mode
     code_mode = False
     code_lines = []
 
@@ -68,8 +69,7 @@ def run_cli():
     try:
         while True:
             char = get_key()
-            if char == '\x03': 
-                raise KeyboardInterrupt
+            if char == '\x03': raise KeyboardInterrupt
 
             with terminal_lock:
                 if char in ('\r', '\n'):
@@ -79,7 +79,7 @@ def run_cli():
                         if input_buffer.strip().upper() == "END":
                             code_mode = False
                             full_code = "\n".join(code_lines)
-                            # Render locally with proper carriage returns
+                            # Render locally with proper indentation
                             local_display = full_code.replace('\n', '\r\n')
                             sys.stdout.write(f"{Fore.GREEN}[me code]{Style.RESET_ALL}\r\n{local_display}\r\n")
                             bc.send({"content": full_code, "type": "chat"})
@@ -109,18 +109,23 @@ def run_cli():
                         elif cmd == "send" and len(parts) > 1:
                             filepath = parts[1]
                             if os.path.exists(filepath):
-                                with open(filepath, 'r') as f:
-                                    content = f.read()
-                                local_content = content.replace('\n', '\r\n')
-                                sys.stdout.write(f"{Fore.GREEN}[me shared {filepath}]{Style.RESET_ALL}\r\n{local_content}\r\n")
-                                bc.send({"content": content, "type": "file"})
+                                try:
+                                    filename = os.path.basename(filepath)
+                                    with open(filepath, 'r') as f:
+                                        content = f.read()
+                                    # Fix staircase for local display
+                                    local_content = content.replace('\n', '\r\n')
+                                    sys.stdout.write(f"{Fore.GREEN}[me shared {filename}]{Style.RESET_ALL}\r\n{local_content}\r\n")
+                                    bc.send({"content": content, "type": "file", "filename": filename})
+                                except Exception as e:
+                                    sys.stdout.write(f"{Fore.RED}Error: {e}\r\n")
                             else:
                                 sys.stdout.write(f"{Fore.RED}File not found: {filepath}\r\n")
 
                         elif cmd == "help":
                             sys.stdout.write(f"{Fore.CYAN}--- Available Commands ---\r\n")
                             sys.stdout.write(f";help           - Show help\r\n")
-                            sys.stdout.write(f";code           - Multiline code mode\r\n")
+                            sys.stdout.write(f";code           - Multiline mode\r\n")
                             sys.stdout.write(f";send [file]    - Send file content\r\n")
                             sys.stdout.write(f";all            - List users\r\n")
                             sys.stdout.write(f";@[user] [msg]  - Tag user\r\n")
@@ -132,16 +137,14 @@ def run_cli():
                             users = sorted(list(bc._user_list))
                             sys.stdout.write(f"{Fore.CYAN}Online: {', '.join(users) if users else 'none'}\r\n")
 
-                        elif cmd == "clear": 
-                            sys.stdout.write("\033[H\033[J")
-                        elif cmd in ("exit", "quit", "kill"): 
-                            raise KeyboardInterrupt
+                        elif cmd == "clear": sys.stdout.write("\033[H\033[J")
+                        elif cmd in ("exit", "quit", "kill"): raise KeyboardInterrupt
                         elif cmd == "nick" and len(parts) > 1:
                             old = bc.username
                             bc.username = parts[1]
                             save_mem({"username": bc.username})
                             sys.stdout.write(f"{Fore.YELLOW}System: Name is now {bc.username}\r\n")
-                            bc.send({"from": "System", "content": f"{old} changed their name to {bc.username}"})
+                            bc.send({"from": "System", "content": f"{old} changed name to {bc.username}"})
                         
                         input_buffer = ""
                     

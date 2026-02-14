@@ -2,6 +2,7 @@ import asyncio
 import threading
 import sys
 import uuid
+import os
 from supabase import create_async_client
 from colorama import Fore, Style, init
 
@@ -17,8 +18,13 @@ class Broadcaster:
         self.reprint_callback = reprint_callback
         self._user_list = set()
         
-        # History stores dictionaries: {"from": sender, "to": target, "content": msg, "type": type}
+        # History stores dictionaries: {"from": sender, "to": target, "content": msg, "type": type, "filename": name}
         self.display_history = [] 
+
+        # Ensure downloads folder exists
+        self.download_dir = "downloads"
+        if not os.path.exists(self.download_dir):
+            os.makedirs(self.download_dir)
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._run_loop, daemon=True).start()
@@ -37,6 +43,7 @@ class Broadcaster:
                 data = payload["payload"]
                 event_type = data.get("type", "chat")
                 
+                # History Sync Logic
                 if event_type == "history_request" and data.get("from") != self.username:
                     self.send({"type": "history_transfer", "to": data["from"], "content": self.display_history})
                     return
@@ -51,12 +58,17 @@ class Broadcaster:
                 msg = data.get("content", "")
                 target = data.get("to")
                 msg_type = data.get("type", "chat")
-                
+                filename = data.get("filename")
+
                 if sender == self.username:
                     return
                 
-                self._add_to_history(sender, target, msg, msg_type)
-                formatted = self._format_msg(sender, target, msg, msg_type)
+                # Save incoming files locally
+                if msg_type == "file" and filename:
+                    self._save_file(filename, msg)
+
+                self._add_to_history(sender, target, msg, msg_type, filename)
+                formatted = self._format_msg(sender, target, msg, msg_type, filename)
                 self._print_line(formatted)
 
             def on_sync():
@@ -70,7 +82,6 @@ class Broadcaster:
                 for user in new_users - self._user_list:
                     if user != self.username:
                         self._print_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
-                
                 for user in self._user_list - new_users:
                     if user != self.username:
                         self._print_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
@@ -82,13 +93,25 @@ class Broadcaster:
             await self.channel.subscribe()
             await self.channel.track({'user': self.username})
             self.enabled = True
+            
+            # Request history from the room
             self.send({"type": "history_request", "from": self.username, "content": ""})
 
         except Exception:
             self.enabled = False
 
-    def _format_msg(self, sender, target, content, msg_type="chat"):
-        # Fix internal newlines for raw terminal mode
+    def _save_file(self, filename, content):
+        """Writes the received content to the downloads folder."""
+        try:
+            path = os.path.join(self.download_dir, filename)
+            with open(path, 'w') as f:
+                f.write(content)
+            self._print_line(f"{Fore.CYAN}System: Received file saved to {path}{Style.RESET_ALL}")
+        except Exception as e:
+            self._print_line(f"{Fore.RED}System: Failed to save file {filename}: {e}{Style.RESET_ALL}")
+
+    def _format_msg(self, sender, target, content, msg_type="chat", filename=None):
+        # Indentation Fix: Convert all \n to \r\n for raw terminal mode
         content = content.replace('\n', '\r\n')
         
         if sender == "System":
@@ -99,7 +122,7 @@ class Broadcaster:
         display_name = "me" if is_me else sender
 
         if msg_type == "file":
-            header = f"{Fore.YELLOW}[{display_name} shared a file]{Style.RESET_ALL}"
+            header = f"{Fore.YELLOW}[{display_name} shared a file: {filename or 'file'}]{Style.RESET_ALL}"
             return f"{header}\r\n{content}"
 
         if target:
@@ -110,23 +133,28 @@ class Broadcaster:
             
         return f"{header} {content}"
 
-    def _add_to_history(self, sender, target, content, msg_type="chat"):
-        self.display_history.append({"from": sender, "to": target, "content": content, "type": msg_type})
+    def _add_to_history(self, sender, target, content, msg_type="chat", filename=None):
+        self.display_history.append({
+            "from": sender, 
+            "to": target, 
+            "content": content, 
+            "type": msg_type, 
+            "filename": filename
+        })
         if len(self.display_history) > 50:
             self.display_history.pop(0)
 
     def _render_batch(self, history_list):
         with self.terminal_lock:
             sys.stdout.write("\r\033[K")
-            for msg_data in history_list:
-                formatted = self._format_msg(msg_data["from"], msg_data["to"], msg_data["content"], msg_data.get("type", "chat"))
+            for m in history_list:
+                formatted = self._format_msg(m["from"], m["to"], m["content"], m.get("type", "chat"), m.get("filename"))
                 sys.stdout.write(f"{formatted}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
 
     def _print_line(self, text):
         with self.terminal_lock:
-            # text already has \r\n internally via _format_msg
             sys.stdout.write(f"\r\033[K{text}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
@@ -136,22 +164,13 @@ class Broadcaster:
         return colors[hash(str(name)) % len(colors)]
 
     def send(self, payload: dict):
-        if not self.enabled:
-            return
-        
-        if "from" not in payload:
-            payload["from"] = self.username
+        if not self.enabled: return
+        if "from" not in payload: payload["from"] = self.username
             
         if payload.get("type") not in ["history_request", "history_transfer"]:
-            sender = payload["from"]
-            target = payload.get("to")
-            content = payload.get('content', '')
-            msg_type = payload.get('type', 'chat')
-            self._add_to_history(sender, target, content, msg_type)
+            self._add_to_history(payload["from"], payload.get("to"), payload.get('content', ''), payload.get('type', 'chat'), payload.get('filename'))
 
         async def _send():
-            try:
-                await self.channel.send_broadcast("msg", payload)
-            except:
-                pass
+            try: await self.channel.send_broadcast("msg", payload)
+            except: pass
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
