@@ -3,6 +3,7 @@ import threading
 import sys
 import uuid
 import os
+import base64 # Added for binary support
 from supabase import create_async_client
 from colorama import Fore, Style, init
 
@@ -18,7 +19,7 @@ class Broadcaster:
         self.reprint_callback = reprint_callback
         self._user_list = set()
         
-        # History stores dictionaries: {"from": sender, "to": target, "content": msg, "type": type, "filename": name}
+        # History stores dictionaries: {"from": sender, "to": target, "content": msg, "type": type, "filename": name, "is_binary": bool}
         self.display_history = [] 
 
         # Ensure downloads folder exists
@@ -59,16 +60,17 @@ class Broadcaster:
                 target = data.get("to")
                 msg_type = data.get("type", "chat")
                 filename = data.get("filename")
+                is_binary = data.get("is_binary", False) # Extract binary flag
 
                 if sender == self.username:
                     return
                 
                 # Save incoming files locally
                 if msg_type == "file" and filename:
-                    self._save_file(filename, msg)
+                    self._save_file(filename, msg, is_binary)
 
-                self._add_to_history(sender, target, msg, msg_type, filename)
-                formatted = self._format_msg(sender, target, msg, msg_type, filename)
+                self._add_to_history(sender, target, msg, msg_type, filename, is_binary)
+                formatted = self._format_msg(sender, target, msg, msg_type, filename, is_binary)
                 self._print_line(formatted)
 
             def on_sync():
@@ -100,19 +102,25 @@ class Broadcaster:
         except Exception:
             self.enabled = False
 
-    def _save_file(self, filename, content):
-        """Writes the received content to the downloads folder."""
+    def _save_file(self, filename, content, is_binary=False):
+        """Writes the received content to the downloads folder in correct mode."""
         try:
             path = os.path.join(self.download_dir, filename)
-            with open(path, 'w') as f:
-                f.write(content)
+            if is_binary:
+                # Decode Base64 and write in binary mode
+                with open(path, 'wb') as f:
+                    f.write(base64.b64decode(content))
+            else:
+                with open(path, 'w') as f:
+                    f.write(content)
             self._print_line(f"{Fore.CYAN}System: Received file saved to {path}{Style.RESET_ALL}")
         except Exception as e:
             self._print_line(f"{Fore.RED}System: Failed to save file {filename}: {e}{Style.RESET_ALL}")
 
-    def _format_msg(self, sender, target, content, msg_type="chat", filename=None):
-        # Indentation Fix: Convert all \n to \r\n for raw terminal mode
-        content = content.replace('\n', '\r\n')
+    def _format_msg(self, sender, target, content, msg_type="chat", filename=None, is_binary=False):
+        # Only apply indentation fix if it's not binary data
+        if not is_binary:
+            content = content.replace('\n', '\r\n')
         
         if sender == "System":
             return f"{Fore.YELLOW}System: {content}{Style.RESET_ALL}"
@@ -121,7 +129,6 @@ class Broadcaster:
         color = Fore.GREEN if is_me else self._color_for_user(sender)
         display_name = "me" if is_me else sender
 
-        # Changed to instruction prompt instead of displaying content
         if msg_type == "file":
             fname = filename or "file"
             header = f"{Fore.YELLOW}[{display_name} shared a file: {fname}]{Style.RESET_ALL}"
@@ -136,13 +143,14 @@ class Broadcaster:
             
         return f"{header} {content}"
 
-    def _add_to_history(self, sender, target, content, msg_type="chat", filename=None):
+    def _add_to_history(self, sender, target, content, msg_type="chat", filename=None, is_binary=False):
         self.display_history.append({
             "from": sender, 
             "to": target, 
             "content": content, 
             "type": msg_type, 
-            "filename": filename
+            "filename": filename,
+            "is_binary": is_binary
         })
         if len(self.display_history) > 50:
             self.display_history.pop(0)
@@ -151,7 +159,7 @@ class Broadcaster:
         with self.terminal_lock:
             sys.stdout.write("\r\033[K")
             for m in history_list:
-                formatted = self._format_msg(m["from"], m["to"], m["content"], m.get("type", "chat"), m.get("filename"))
+                formatted = self._format_msg(m["from"], m["to"], m["content"], m.get("type", "chat"), m.get("filename"), m.get("is_binary", False))
                 sys.stdout.write(f"{formatted}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
@@ -171,7 +179,7 @@ class Broadcaster:
         if "from" not in payload: payload["from"] = self.username
             
         if payload.get("type") not in ["history_request", "history_transfer"]:
-            self._add_to_history(payload["from"], payload.get("to"), payload.get('content', ''), payload.get('type', 'chat'), payload.get('filename'))
+            self._add_to_history(payload["from"], payload.get("to"), payload.get('content', ''), payload.get('type', 'chat'), payload.get('filename'), payload.get('is_binary', False))
 
         async def _send():
             try: await self.channel.send_broadcast("msg", payload)

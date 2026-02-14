@@ -1,4 +1,4 @@
-import sys, time, threading, json, os, subprocess
+import sys, time, threading, json, os, subprocess, base64 # Added base64
 from broadcaster import Broadcaster
 from colorama import Fore, Style, init
 
@@ -108,24 +108,37 @@ def run_cli():
                             if os.path.exists(filepath):
                                 try:
                                     filename = os.path.basename(filepath)
-                                    with open(filepath, 'r') as f:
-                                        content = f.read()
+                                    # Binary detection for images/PDFs
+                                    is_bin = filepath.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
+                                    
+                                    if is_bin:
+                                        # Read as binary and encode to Base64
+                                        with open(filepath, 'rb') as f:
+                                            content = base64.b64encode(f.read()).decode('utf-8')
+                                    else:
+                                        with open(filepath, 'r') as f:
+                                            content = f.read()
+                                            
                                     sys.stdout.write(f"{Fore.GREEN}[me shared {filename}]{Style.RESET_ALL} use \";show {filename}\", \";open {filename}\", \";copy {filename}\"\r\n")
-                                    bc.send({"content": content, "type": "file", "filename": filename})
+                                    bc.send({"content": content, "type": "file", "filename": filename, "is_binary": is_bin})
                                 except Exception as e:
                                     sys.stdout.write(f"{Fore.RED}Error: {e}\r\n")
                             else:
                                 sys.stdout.write(f"{Fore.RED}File not found: {filepath}\r\n")
 
-                        # New Local Commands: show, open, copy
                         elif cmd == "show" and len(parts) > 1:
                             filename = parts[1]
                             path = os.path.join(bc.download_dir, filename)
                             if os.path.exists(path):
                                 try:
-                                    with open(path, 'r') as f:
-                                        content = f.read().replace('\n', '\r\n')
-                                    sys.stdout.write(f"{Fore.CYAN}--- Content of {filename} ---\r\n{content}\r\n--- End of File ---\r\n")
+                                    # Check if the file is binary before showing text
+                                    is_bin = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
+                                    if is_bin:
+                                        sys.stdout.write(f"{Fore.RED}System: Cannot display binary file contents in terminal. Use \";open {filename}\" instead.\r\n")
+                                    else:
+                                        with open(path, 'r') as f:
+                                            content = f.read().replace('\n', '\r\n')
+                                        sys.stdout.write(f"{Fore.CYAN}--- Content of {filename} ---\r\n{content}\r\n--- End of File ---\r\n")
                                 except Exception as e:
                                     sys.stdout.write(f"{Fore.RED}Error reading file: {e}\r\n")
                             else:
@@ -153,15 +166,20 @@ def run_cli():
                             path = os.path.join(bc.download_dir, filename)
                             if os.path.exists(path):
                                 try:
-                                    with open(path, 'r') as f:
-                                        content = f.read()
-                                    if sys.platform == "win32":
-                                        subprocess.run("clip", input=content, text=True, check=True)
-                                    elif sys.platform == "darwin":
-                                        subprocess.run("pbcopy", input=content, text=True, check=True)
+                                    # Avoid copying binary data to clipboard unless text-based
+                                    is_bin = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
+                                    if is_bin:
+                                        sys.stdout.write(f"{Fore.RED}System: Clipboard copying of binary files is not supported.\r\n")
                                     else:
-                                        subprocess.run(["xclip", "-selection", "clipboard"], input=content, text=True, check=True)
-                                    sys.stdout.write(f"{Fore.CYAN}System: {filename} content copied to clipboard!\r\n")
+                                        with open(path, 'r') as f:
+                                            content = f.read()
+                                        if sys.platform == "win32":
+                                            subprocess.run("clip", input=content, text=True, check=True)
+                                        elif sys.platform == "darwin":
+                                            subprocess.run("pbcopy", input=content, text=True, check=True)
+                                        else:
+                                            subprocess.run(["xclip", "-selection", "clipboard"], input=content, text=True, check=True)
+                                        sys.stdout.write(f"{Fore.CYAN}System: {filename} content copied to clipboard!\r\n")
                                 except Exception as e:
                                     sys.stdout.write(f"{Fore.RED}Error copying to clipboard: {e}\r\n")
                             else:
