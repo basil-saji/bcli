@@ -50,11 +50,30 @@ def run_cli():
 
             with terminal_lock:
                 if char in ('\r', '\n'):
-                    if input_buffer.strip():
-                        sys.stdout.write("\r\033[K")
-                        print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}")
-                        bc.send({"from": username, "content": input_buffer})
+                    sys.stdout.write("\r\033[K") # Clear prompt line
+                    
+                    # COMMAND HANDLER: Uses semicolon
+                    if input_buffer.startswith(';'):
+                        parts = input_buffer[1:].split()
+                        cmd = parts[0].lower() if parts else ""
+                        
+                        if cmd == "clear":
+                            sys.stdout.write("\033[H\033[J")
+                        elif cmd in ("exit", "quit", "kill"):
+                            raise KeyboardInterrupt
+                        elif cmd == "nick" and len(parts) > 1:
+                            bc.username = parts[1]
+                            print(f"{Fore.YELLOW}System: Your name is now {bc.username}{Style.RESET_ALL}")
+                        else:
+                            print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
+                        
                         input_buffer = ""
+                    
+                    elif input_buffer.strip():
+                        print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}")
+                        bc.send({"from": bc.username, "content": input_buffer})
+                        input_buffer = ""
+                    
                     reprint_input()
 
                 elif char in ('\x7f', '\x08'):

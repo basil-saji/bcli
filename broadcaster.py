@@ -14,7 +14,7 @@ class Broadcaster:
         self.username = username
         self.terminal_lock = terminal_lock
         self.reprint_callback = reprint_callback
-        self._user_list = set() # Track active users
+        self._user_list = set()
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._run_loop, daemon=True).start()
@@ -29,7 +29,6 @@ class Broadcaster:
             self.client = await create_async_client(url, key)
             self.channel = self.client.channel(f"room_{self.room}")
 
-            # Message receiving logic
             def on_msg(payload):
                 data = payload["payload"]
                 sender = data["from"]
@@ -38,7 +37,6 @@ class Broadcaster:
                 color = self._color_for_user(sender)
                 self._print_system_line(f"{color}[{sender}]{Style.RESET_ALL} {msg}")
 
-            # Presence logic (Join/Leave notifications)
             def on_sync():
                 new_users = set()
                 state = self.channel.presence_state()
@@ -46,12 +44,10 @@ class Broadcaster:
                     for presence in state[key]:
                         new_users.add(presence['user'])
 
-                # Detect Joins
                 for user in new_users - self._user_list:
                     if user != self.username:
                         self._print_system_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
                 
-                # Detect Leaves
                 for user in self._user_list - new_users:
                     if user != self.username:
                         self._print_system_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
