@@ -4,7 +4,6 @@ import threading
 from broadcaster import Broadcaster
 from colorama import Fore, Style, init
 
-# Cross-platform Key Capture
 try:
     import msvcrt
     def get_key(): return msvcrt.getch().decode('utf-8', errors='ignore')
@@ -47,13 +46,10 @@ def run_cli():
     try:
         while True:
             char = get_key()
-            
-            # EXIT FIX: Check for Ctrl+C (Hex \x03) manually
-            if char == '\x03':
-                raise KeyboardInterrupt
+            if char == '\x03': raise KeyboardInterrupt
 
             with terminal_lock:
-                if char in ('\r', '\n'): # ENTER
+                if char in ('\r', '\n'):
                     if input_buffer.strip():
                         sys.stdout.write("\r\033[K")
                         print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}")
@@ -61,12 +57,12 @@ def run_cli():
                         input_buffer = ""
                     reprint_input()
 
-                elif char in ('\x7f', '\x08'): # BACKSPACE
+                elif char in ('\x7f', '\x08'):
                     if len(input_buffer) > 0:
                         input_buffer = input_buffer[:-1]
                         reprint_input()
 
-                elif ord(char) >= 32: # TYPING
+                elif ord(char) >= 32:
                     input_buffer += char
                     sys.stdout.write(char)
                     sys.stdout.flush()

@@ -14,6 +14,7 @@ class Broadcaster:
         self.username = username
         self.terminal_lock = terminal_lock
         self.reprint_callback = reprint_callback
+        self._user_list = set() # Track active users
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._run_loop, daemon=True).start()
@@ -28,24 +29,50 @@ class Broadcaster:
             self.client = await create_async_client(url, key)
             self.channel = self.client.channel(f"room_{self.room}")
 
+            # Message receiving logic
             def on_msg(payload):
                 data = payload["payload"]
                 sender = data["from"]
                 msg = data["content"]
                 if sender == self.username: return
-
                 color = self._color_for_user(sender)
-                with self.terminal_lock:
-                    sys.stdout.write(f"\r\033[K")
-                    sys.stdout.write(f"{color}[{sender}]{Style.RESET_ALL} {msg}\n")
-                    self.reprint_callback()
-                    sys.stdout.flush()
+                self._print_system_line(f"{color}[{sender}]{Style.RESET_ALL} {msg}")
+
+            # Presence logic (Join/Leave notifications)
+            def on_sync():
+                new_users = set()
+                state = self.channel.presence_state()
+                for key in state:
+                    for presence in state[key]:
+                        new_users.add(presence['user'])
+
+                # Detect Joins
+                for user in new_users - self._user_list:
+                    if user != self.username:
+                        self._print_system_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
+                
+                # Detect Leaves
+                for user in self._user_list - new_users:
+                    if user != self.username:
+                        self._print_system_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
+                
+                self._user_list = new_users
 
             self.channel.on_broadcast("msg", on_msg)
+            self.channel.on_presence_sync(on_sync)
+            
             await self.channel.subscribe()
+            await self.channel.track({'user': self.username})
             self.enabled = True
         except Exception:
             self.enabled = False
+
+    def _print_system_line(self, text):
+        with self.terminal_lock:
+            sys.stdout.write(f"\r\033[K")
+            sys.stdout.write(f"{text}\n")
+            self.reprint_callback()
+            sys.stdout.flush()
 
     def _color_for_user(self, name):
         colors = [Fore.CYAN, Fore.MAGENTA, Fore.YELLOW, Fore.BLUE]
