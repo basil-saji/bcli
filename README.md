@@ -66,20 +66,5 @@ https://github.com/basil-saji/bcli
 
 Developed by **Basil Saji**
 
----
 
-## ✅ Final Publication Checklist
 
-1. **Update `broadcaster.py`** – Ensure it includes the chunking logic.  
-2. **Add `VERSION`** – Create a file containing only:
-   ```
-   1.0.0
-   ```
-3. **Add `GUIDE.txt` and `README.md`** – Use this finalized text.  
-4. **Push to GitHub:**
-   ```bash
-   git add .
-   git commit -m "Complete production bundle with banner and guides"
-   git push origin main
-   ```
-````
