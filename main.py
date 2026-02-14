@@ -4,7 +4,7 @@ from broadcaster import Broadcaster
 from colorama import Fore, Style, init
 
 # --- REMOTE CONFIG ---
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 REPO_BASE = "https://raw.githubusercontent.com/basil-saji/bcli/main"
 REPO_VERSION_URL = f"{REPO_BASE}/VERSION"
 GUIDE_URL = f"{REPO_BASE}/GUIDE.txt"
