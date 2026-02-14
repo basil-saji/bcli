@@ -50,9 +50,8 @@ def run_cli():
 
             with terminal_lock:
                 if char in ('\r', '\n'):
-                    sys.stdout.write("\r\033[K") # Clear prompt line
+                    sys.stdout.write("\r\033[K")
                     
-                    # COMMAND HANDLER: Uses semicolon
                     if input_buffer.startswith(';'):
                         parts = input_buffer[1:].split()
                         cmd = parts[0].lower() if parts else ""
@@ -62,13 +61,15 @@ def run_cli():
                         elif cmd in ("exit", "quit", "kill"):
                             raise KeyboardInterrupt
                         elif cmd == "nick" and len(parts) > 1:
-                            bc.username = parts[1]
-                            print(f"{Fore.YELLOW}System: Your name is now {bc.username}{Style.RESET_ALL}")
+                            old_name = bc.username
+                            new_name = parts[1]
+                            bc.username = new_name
+                            print(f"{Fore.YELLOW}System: Your name is now {new_name}{Style.RESET_ALL}")
+                            bc.send({"from": "System", "content": f"{old_name} changed their name to {new_name}"})
                         else:
                             print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
                         
                         input_buffer = ""
-                    
                     elif input_buffer.strip():
                         print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}")
                         bc.send({"from": bc.username, "content": input_buffer})

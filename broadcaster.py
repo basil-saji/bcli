@@ -34,22 +34,26 @@ class Broadcaster:
                 sender = data["from"]
                 msg = data["content"]
                 if sender == self.username: return
-                color = self._color_for_user(sender)
-                self._print_system_line(f"{color}[{sender}]{Style.RESET_ALL} {msg}")
+                
+                if sender == "System":
+                    self._print_system_line(f"{Fore.YELLOW}System: {msg}{Style.RESET_ALL}")
+                else:
+                    color = self._color_for_user(sender)
+                    self._print_system_line(f"{color}[{sender}]{Style.RESET_ALL} {msg}")
 
             def on_sync():
                 new_users = set()
                 state = self.channel.presence_state()
                 for key in state:
                     for presence in state[key]:
-                        new_users.add(presence['user'])
+                        new_users.add(presence.get('user'))
 
                 for user in new_users - self._user_list:
-                    if user != self.username:
+                    if user and user != self.username:
                         self._print_system_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
                 
                 for user in self._user_list - new_users:
-                    if user != self.username:
+                    if user and user != self.username:
                         self._print_system_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
                 
                 self._user_list = new_users
@@ -65,8 +69,7 @@ class Broadcaster:
 
     def _print_system_line(self, text):
         with self.terminal_lock:
-            sys.stdout.write(f"\r\033[K")
-            sys.stdout.write(f"{text}\n")
+            sys.stdout.write(f"\r\033[K{text}\n")
             self.reprint_callback()
             sys.stdout.flush()
 
