@@ -18,6 +18,7 @@ except ImportError:
 
 init(autoreset=True)
 MEMORY_FILE = "memory.json"
+#
 SUPABASE_URL = "https://wqqckkuycvthvizcwfgn.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcWNra3V5Y3Z0aHZpemN3ZmduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxNDcxMDYsImV4cCI6MjA4MTcyMzEwNn0.d2mfBuqKG8g4NSLb-EMCnzd-U-_mH35FwOxsbjbuGQ8"
 
@@ -44,9 +45,13 @@ def run_cli():
 
     input_buffer = ""
     terminal_lock = threading.Lock()
+    # State tracking for multiline code mode
+    code_mode = False
+    code_lines = []
 
     def reprint_input():
-        sys.stdout.write(f"\r\033[K> {input_buffer}")
+        prompt = "CODE> " if code_mode else "> "
+        sys.stdout.write(f"\r\033[K{prompt}{input_buffer}")
         sys.stdout.flush()
 
     bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username, terminal_lock, reprint_input)
@@ -70,10 +75,25 @@ def run_cli():
                 if char in ('\r', '\n'):
                     sys.stdout.write("\r\033[K")
                     
+                    # Handle Multiline Code Mode logic
+                    if code_mode:
+                        if input_buffer.strip().upper() == "END":
+                            code_mode = False
+                            full_code = "\n".join(code_lines)
+                            sys.stdout.write(f"{Fore.GREEN}[me code]{Style.RESET_ALL}\r\n{full_code}\r\n")
+                            bc.send({"content": full_code, "type": "chat"})
+                            code_lines = []
+                        else:
+                            code_lines.append(input_buffer)
+                            sys.stdout.write(f"  {input_buffer}\r\n")
+                        input_buffer = ""
+                        reprint_input()
+                        continue
+
+                    # Standard Command Handling
                     if input_buffer.startswith(';@'):
                         parts = input_buffer[2:].split(' ', 1)
                         if len(parts) == 2:
-                            # Immediate local display
                             sys.stdout.write(f"{Fore.GREEN}[me to {parts[0]}]{Style.RESET_ALL} {parts[1]}\r\n")
                             bc.send({"to": parts[0], "content": parts[1]})
                         input_buffer = ""
@@ -82,9 +102,28 @@ def run_cli():
                         parts = input_buffer[1:].split()
                         cmd = parts[0].lower() if parts else ""
                         
-                        if cmd == "help":
+                        if cmd == "code":
+                            code_mode = True
+                            sys.stdout.write(f"{Fore.YELLOW}--- Multiline Mode (Type 'END' to send) ---\r\n{Style.RESET_ALL}")
+                        
+                        elif cmd == "send" and len(parts) > 1:
+                            filepath = parts[1]
+                            if os.path.exists(filepath):
+                                try:
+                                    with open(filepath, 'r') as f:
+                                        content = f.read()
+                                    sys.stdout.write(f"{Fore.GREEN}[me shared {filepath}]{Style.RESET_ALL}\r\n")
+                                    bc.send({"content": content, "type": "file"})
+                                except Exception as e:
+                                    sys.stdout.write(f"{Fore.RED}Error reading file: {e}\r\n")
+                            else:
+                                sys.stdout.write(f"{Fore.RED}File not found: {filepath}\r\n")
+
+                        elif cmd == "help":
                             sys.stdout.write(f"{Fore.CYAN}--- Available Commands ---\r\n")
                             sys.stdout.write(f";help           - Show help\r\n")
+                            sys.stdout.write(f";code           - Multiline mode\r\n")
+                            sys.stdout.write(f";send [file]    - Share file contents\r\n")
                             sys.stdout.write(f";all            - List users\r\n")
                             sys.stdout.write(f";@[user] [msg]  - Tag user\r\n")
                             sys.stdout.write(f";nick [name]    - Change name\r\n")
@@ -109,7 +148,7 @@ def run_cli():
                         input_buffer = ""
                     
                     elif input_buffer.strip():
-                        # Immediate local display
+                        # Standard immediate local display
                         sys.stdout.write(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}\r\n")
                         bc.send({"content": input_buffer})
                         input_buffer = ""

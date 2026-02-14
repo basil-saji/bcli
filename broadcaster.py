@@ -17,7 +17,7 @@ class Broadcaster:
         self.reprint_callback = reprint_callback
         self._user_list = set()
         
-        # History stores dictionaries: {"from": sender, "to": target, "content": msg}
+        # History stores dictionaries for structured transfer: {"from": sender, "to": target, "content": msg, "type": type}
         self.display_history = [] 
 
         self._loop = asyncio.new_event_loop()
@@ -50,15 +50,16 @@ class Broadcaster:
                 sender = data.get("from", "Unknown")
                 msg = data.get("content", "")
                 target = data.get("to")
+                msg_type = data.get("type", "chat")
                 
                 if sender == self.username:
                     return
                 
                 # Add to history as structured data
-                self._add_to_history(sender, target, msg)
+                self._add_to_history(sender, target, msg, msg_type)
                 
-                # Format for current viewer
-                formatted = self._format_msg(sender, target, msg)
+                # Format for display
+                formatted = self._format_msg(sender, target, msg, msg_type)
                 self._print_line(formatted)
 
             def on_sync():
@@ -89,18 +90,20 @@ class Broadcaster:
         except Exception:
             self.enabled = False
 
-    def _format_msg(self, sender, target, content):
-        """Logic to decide between [me] and [username] for display."""
+    def _format_msg(self, sender, target, content, msg_type="chat"):
         if sender == "System":
             return f"{Fore.YELLOW}System: {content}{Style.RESET_ALL}"
         
-        # Determine if 'me' should be used
         is_me = (sender == self.username)
         color = Fore.GREEN if is_me else self._color_for_user(sender)
         display_name = "me" if is_me else sender
 
+        # Special formatting for files
+        if msg_type == "file":
+            header = f"{Fore.YELLOW}[{display_name} shared a file]{Style.RESET_ALL}"
+            return f"{header}\r\n{content}"
+
         if target:
-            # Handle targeted display
             target_display = "me" if target == self.username else target
             header = f"{color}[{display_name} to {target_display}]{Style.RESET_ALL}"
         else:
@@ -108,8 +111,8 @@ class Broadcaster:
             
         return f"{header} {content}"
 
-    def _add_to_history(self, sender, target, content):
-        self.display_history.append({"from": sender, "to": target, "content": content})
+    def _add_to_history(self, sender, target, content, msg_type="chat"):
+        self.display_history.append({"from": sender, "to": target, "content": content, "type": msg_type})
         if len(self.display_history) > 50:
             self.display_history.pop(0)
 
@@ -117,7 +120,7 @@ class Broadcaster:
         with self.terminal_lock:
             sys.stdout.write("\r\033[K")
             for msg_data in history_list:
-                formatted = self._format_msg(msg_data["from"], msg_data["to"], msg_data["content"])
+                formatted = self._format_msg(msg_data["from"], msg_data["to"], msg_data["content"], msg_data.get("type", "chat"))
                 sys.stdout.write(f"{formatted}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
@@ -143,14 +146,10 @@ class Broadcaster:
             sender = payload["from"]
             target = payload.get("to")
             content = payload.get('content', '')
+            msg_type = payload.get('type', 'chat')
             
-            # 1. Add structured data to history (so it can be shared with others)
-            self._add_to_history(sender, target, content)
-            
-            # 2. Local immediate display (preserves your custom [me] display logic)
-            # This part remains identical to your requested behavior
-            formatted = self._format_msg(sender, target, content)
-            # (Note: _format_msg will handle the 'me' replacement locally)
+            # Add structured data to history
+            self._add_to_history(sender, target, content, msg_type)
 
         async def _send():
             try:
