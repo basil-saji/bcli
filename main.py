@@ -1,4 +1,4 @@
-import sys, time, threading, json, os
+import sys, time, threading, json, os, subprocess
 from broadcaster import Broadcaster
 from colorama import Fore, Style, init
 
@@ -18,7 +18,6 @@ except ImportError:
 
 init(autoreset=True)
 MEMORY_FILE = "memory.json"
-#
 SUPABASE_URL = "https://wqqckkuycvthvizcwfgn.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcWNra3V5Y3Z0aHZpemN3ZmduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxNDcxMDYsImV4cCI6MjA4MTcyMzEwNn0.d2mfBuqKG8g4NSLb-EMCnzd-U-_mH35FwOxsbjbuGQ8"
 
@@ -46,7 +45,6 @@ def run_cli():
     input_buffer = ""
     terminal_lock = threading.Lock()
     
-    # State tracking for multiline code mode
     code_mode = False
     code_lines = []
 
@@ -79,7 +77,6 @@ def run_cli():
                         if input_buffer.strip().upper() == "END":
                             code_mode = False
                             full_code = "\n".join(code_lines)
-                            # Render locally with proper indentation
                             local_display = full_code.replace('\n', '\r\n')
                             sys.stdout.write(f"{Fore.GREEN}[me code]{Style.RESET_ALL}\r\n{local_display}\r\n")
                             bc.send({"content": full_code, "type": "chat"})
@@ -113,20 +110,71 @@ def run_cli():
                                     filename = os.path.basename(filepath)
                                     with open(filepath, 'r') as f:
                                         content = f.read()
-                                    # Fix staircase for local display
-                                    local_content = content.replace('\n', '\r\n')
-                                    sys.stdout.write(f"{Fore.GREEN}[me shared {filename}]{Style.RESET_ALL}\r\n{local_content}\r\n")
+                                    sys.stdout.write(f"{Fore.GREEN}[me shared {filename}]{Style.RESET_ALL} use \";show {filename}\", \";open {filename}\", \";copy {filename}\"\r\n")
                                     bc.send({"content": content, "type": "file", "filename": filename})
                                 except Exception as e:
                                     sys.stdout.write(f"{Fore.RED}Error: {e}\r\n")
                             else:
                                 sys.stdout.write(f"{Fore.RED}File not found: {filepath}\r\n")
 
+                        # New Local Commands: show, open, copy
+                        elif cmd == "show" and len(parts) > 1:
+                            filename = parts[1]
+                            path = os.path.join(bc.download_dir, filename)
+                            if os.path.exists(path):
+                                try:
+                                    with open(path, 'r') as f:
+                                        content = f.read().replace('\n', '\r\n')
+                                    sys.stdout.write(f"{Fore.CYAN}--- Content of {filename} ---\r\n{content}\r\n--- End of File ---\r\n")
+                                except Exception as e:
+                                    sys.stdout.write(f"{Fore.RED}Error reading file: {e}\r\n")
+                            else:
+                                sys.stdout.write(f"{Fore.RED}File not found in downloads: {filename}\r\n")
+
+                        elif cmd == "open" and len(parts) > 1:
+                            filename = parts[1]
+                            path = os.path.join(bc.download_dir, filename)
+                            if os.path.exists(path):
+                                try:
+                                    if sys.platform == "win32":
+                                        os.startfile(path)
+                                    elif sys.platform == "darwin":
+                                        subprocess.call(["open", path])
+                                    else:
+                                        subprocess.call(["xdg-open", path])
+                                    sys.stdout.write(f"{Fore.CYAN}System: Opening {filename}...\r\n")
+                                except Exception as e:
+                                    sys.stdout.write(f"{Fore.RED}Error opening file: {e}\r\n")
+                            else:
+                                sys.stdout.write(f"{Fore.RED}File not found in downloads: {filename}\r\n")
+
+                        elif cmd == "copy" and len(parts) > 1:
+                            filename = parts[1]
+                            path = os.path.join(bc.download_dir, filename)
+                            if os.path.exists(path):
+                                try:
+                                    with open(path, 'r') as f:
+                                        content = f.read()
+                                    if sys.platform == "win32":
+                                        subprocess.run("clip", input=content, text=True, check=True)
+                                    elif sys.platform == "darwin":
+                                        subprocess.run("pbcopy", input=content, text=True, check=True)
+                                    else:
+                                        subprocess.run(["xclip", "-selection", "clipboard"], input=content, text=True, check=True)
+                                    sys.stdout.write(f"{Fore.CYAN}System: {filename} content copied to clipboard!\r\n")
+                                except Exception as e:
+                                    sys.stdout.write(f"{Fore.RED}Error copying to clipboard: {e}\r\n")
+                            else:
+                                sys.stdout.write(f"{Fore.RED}File not found in downloads: {filename}\r\n")
+
                         elif cmd == "help":
                             sys.stdout.write(f"{Fore.CYAN}--- Available Commands ---\r\n")
                             sys.stdout.write(f";help           - Show help\r\n")
                             sys.stdout.write(f";code           - Multiline mode\r\n")
                             sys.stdout.write(f";send [file]    - Send file content\r\n")
+                            sys.stdout.write(f";show [file]    - View downloaded file\r\n")
+                            sys.stdout.write(f";open [file]    - Open downloaded file\r\n")
+                            sys.stdout.write(f";copy [file]    - Copy file to clipboard\r\n")
                             sys.stdout.write(f";all            - List users\r\n")
                             sys.stdout.write(f";@[user] [msg]  - Tag user\r\n")
                             sys.stdout.write(f";nick [name]    - Change name\r\n")
@@ -137,8 +185,10 @@ def run_cli():
                             users = sorted(list(bc._user_list))
                             sys.stdout.write(f"{Fore.CYAN}Online: {', '.join(users) if users else 'none'}\r\n")
 
-                        elif cmd == "clear": sys.stdout.write("\033[H\033[J")
-                        elif cmd in ("exit", "quit", "kill"): raise KeyboardInterrupt
+                        elif cmd == "clear": 
+                            sys.stdout.write("\033[H\033[J")
+                        elif cmd in ("exit", "quit", "kill"): 
+                            raise KeyboardInterrupt
                         elif cmd == "nick" and len(parts) > 1:
                             old = bc.username
                             bc.username = parts[1]

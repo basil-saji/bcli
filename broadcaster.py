@@ -121,9 +121,12 @@ class Broadcaster:
         color = Fore.GREEN if is_me else self._color_for_user(sender)
         display_name = "me" if is_me else sender
 
+        # Changed to instruction prompt instead of displaying content
         if msg_type == "file":
-            header = f"{Fore.YELLOW}[{display_name} shared a file: {filename or 'file'}]{Style.RESET_ALL}"
-            return f"{header}\r\n{content}"
+            fname = filename or "file"
+            header = f"{Fore.YELLOW}[{display_name} shared a file: {fname}]{Style.RESET_ALL}"
+            prompt = f"use \";show {fname}\" to view the file, \";open {fname}\" to open the file, \";copy {fname}\" to copy the file"
+            return f"{header} {prompt}"
 
         if target:
             target_display = "me" if target == self.username else target
