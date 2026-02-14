@@ -52,7 +52,20 @@ def run_cli():
                 if char in ('\r', '\n'):
                     sys.stdout.write("\r\033[K")
                     
-                    if input_buffer.startswith(';'):
+                    # DIRECT TAGGING HANDLER
+                    if input_buffer.startswith(';@'):
+                        parts = input_buffer[2:].split(' ', 1)
+                        if len(parts) == 2:
+                            target_user = parts[0]
+                            message_text = parts[1]
+                            print(f"{Fore.GREEN}[me to {target_user}]{Style.RESET_ALL} {message_text}")
+                            bc.send({"from": bc.username, "to": target_user, "content": message_text})
+                        else:
+                            print(f"{Fore.RED}Usage: ;@username message{Style.RESET_ALL}")
+                        input_buffer = ""
+
+                    # COMMAND HANDLER
+                    elif input_buffer.startswith(';'):
                         parts = input_buffer[1:].split()
                         cmd = parts[0].lower() if parts else ""
                         
@@ -60,6 +73,7 @@ def run_cli():
                             print(f"{Fore.CYAN}--- Available Commands ---")
                             print(f";help           - Show this help message")
                             print(f";all            - List all online users")
+                            print(f";@[user] [msg]  - Tag a specific user") # Added to help
                             print(f";nick [name]    - Change your username")
                             print(f";clear          - Clear the screen")
                             print(f";exit/quit/kill - Close bcli{Style.RESET_ALL}")
@@ -82,6 +96,7 @@ def run_cli():
                             print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
                         
                         input_buffer = ""
+                    
                     elif input_buffer.strip():
                         print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}")
                         bc.send({"from": bc.username, "content": input_buffer})

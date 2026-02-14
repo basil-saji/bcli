@@ -33,13 +33,24 @@ class Broadcaster:
                 data = payload["payload"]
                 sender = data["from"]
                 msg = data["content"]
+                target = data.get("to") # Get the recipient if exists
+                
                 if sender == self.username: return
                 
                 if sender == "System":
                     self._print_system_line(f"{Fore.YELLOW}System: {msg}{Style.RESET_ALL}")
                 else:
                     color = self._color_for_user(sender)
-                    self._print_system_line(f"{color}[{sender}]{Style.RESET_ALL} {msg}")
+                    # TAGGING LOGIC
+                    if target:
+                        if target == self.username:
+                            header = f"{color}[{sender} to me]{Style.RESET_ALL}"
+                        else:
+                            header = f"{color}[{sender} to {target}]{Style.RESET_ALL}"
+                    else:
+                        header = f"{color}[{sender}]{Style.RESET_ALL}"
+                        
+                    self._print_system_line(f"{header} {msg}")
 
             def on_sync():
                 new_users = set()
@@ -69,7 +80,6 @@ class Broadcaster:
             self.enabled = False
 
     def get_active_users(self):
-        """Returns the list of currently active users including self."""
         return sorted(list(self._user_list))
 
     def _print_system_line(self, text):
