@@ -56,7 +56,19 @@ def run_cli():
                         parts = input_buffer[1:].split()
                         cmd = parts[0].lower() if parts else ""
                         
-                        if cmd == "clear":
+                        if cmd == "help":
+                            print(f"{Fore.CYAN}--- Available Commands ---")
+                            print(f";help           - Show this help message")
+                            print(f";all            - List all online users")
+                            print(f";nick [name]    - Change your username")
+                            print(f";clear          - Clear the screen")
+                            print(f";exit/quit/kill - Close bcli{Style.RESET_ALL}")
+                        
+                        elif cmd == "all":
+                            users = bc.get_active_users()
+                            print(f"{Fore.CYAN}Online users ({len(users)}): {', '.join(users)}{Style.RESET_ALL}")
+
+                        elif cmd == "clear":
                             sys.stdout.write("\033[H\033[J")
                         elif cmd in ("exit", "quit", "kill"):
                             raise KeyboardInterrupt

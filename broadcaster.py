@@ -46,14 +46,15 @@ class Broadcaster:
                 state = self.channel.presence_state()
                 for key in state:
                     for presence in state[key]:
-                        new_users.add(presence.get('user'))
+                        name = presence.get('user')
+                        if name: new_users.add(name)
 
                 for user in new_users - self._user_list:
-                    if user and user != self.username:
+                    if user != self.username:
                         self._print_system_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
                 
                 for user in self._user_list - new_users:
-                    if user and user != self.username:
+                    if user != self.username:
                         self._print_system_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
                 
                 self._user_list = new_users
@@ -66,6 +67,10 @@ class Broadcaster:
             self.enabled = True
         except Exception:
             self.enabled = False
+
+    def get_active_users(self):
+        """Returns the list of currently active users including self."""
+        return sorted(list(self._user_list))
 
     def _print_system_line(self, text):
         with self.terminal_lock:
