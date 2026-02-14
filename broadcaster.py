@@ -33,14 +33,12 @@ class Broadcaster:
     async def _init_async(self, url: str, key: str):
         try:
             self.client = await create_async_client(url, key)
-            # Ensure the channel name includes the room ID for isolation
             self.channel = self.client.channel(f"room_{self.room}")
 
             def on_msg(payload):
                 data = payload["payload"]
                 event_type = data.get("type", "chat")
                 
-                # Scope check: Only handle messages intended for this room
                 if event_type == "history_request" and data["from"] != self.username:
                     self.send({"type": "history_transfer", "to": data["from"], "content": self.display_history})
                     return
@@ -57,8 +55,8 @@ class Broadcaster:
                     self._refresh_ui()
                     return
 
-                sender = data["from"]
-                msg = data["content"]
+                sender = data.get("from", "Unknown")
+                msg = data.get("content", "")
                 target = data.get("to")
                 if sender == self.username: return
                 
@@ -98,10 +96,10 @@ class Broadcaster:
             await self.channel.track({'user': self.username})
             self.enabled = True
             
-            # Request history from others in THIS room only
-            self.send({"type": "history_request", "from": self.username, "content": ""})
+            # Request history from others
+            self.send({"type": "history_request", "content": ""})
 
-        except Exception:
+        except Exception as e:
             self.enabled = False
 
     def _add_to_history(self, msg_id, formatted_text):
@@ -119,19 +117,24 @@ class Broadcaster:
 
     def send(self, payload: dict):
         if not self.enabled or self.channel is None: return
+        
+        # Ensure 'from' is always set before sending
+        payload["from"] = self.username
         msg_id = str(uuid.uuid4())
         payload["id"] = msg_id
-        payload["from"] = self.username
         
         if payload.get("type") not in ["delete", "history_request", "history_transfer"]:
             self.my_msg_ids.insert(0, msg_id)
             target = payload.get("to")
             header = f"{Fore.GREEN}[me to {target}]{Style.RESET_ALL}" if target else f"{Fore.GREEN}[me]{Style.RESET_ALL}"
-            self._add_to_history(msg_id, f"{header} {payload['content']}")
+            self._add_to_history(msg_id, f"{header} {payload.get('content', '')}")
 
         async def _send():
-            try: await self.channel.send_broadcast("msg", payload)
-            except: pass
+            try: 
+                await self.channel.send_broadcast("msg", payload)
+            except: 
+                pass
+        
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
         self._refresh_ui()
 

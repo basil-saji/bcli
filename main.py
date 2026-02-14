@@ -34,15 +34,15 @@ def save_memory(data):
 def run_cli():
     mem = load_memory()
     
-    # Isolation: Load room history and settings specifically for this session
-    room = input(f"Room id [{mem.get('last_room', 'general')}]: ") or mem.get('last_room', 'general')
-    username = mem.get('username')
+    # UI FIX: No suggested room name, user enters freely
+    room = input("Room id: ").strip()
+    if not room: room = "general"
     
+    username = mem.get('username')
     if not username:
         username = input("Username: ")
         mem['username'] = username
     
-    mem['last_room'] = room
     save_memory(mem)
 
     input_buffer = ""
@@ -53,9 +53,8 @@ def run_cli():
 
     bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username, terminal_lock, reprint_input)
     
-    # Load Room-Specific Local History if available
-    room_history = mem.get('rooms', {}).get(room, [])
-    bc.display_history = room_history
+    # Load Room history if it exists in memory
+    bc.display_history = mem.get('rooms', {}).get(room, [])
 
     while not bc.enabled: time.sleep(0.1)
 
@@ -71,7 +70,7 @@ def run_cli():
                         if cmd == "clear": 
                             bc.display_history = []
                             sys.stdout.write("\033[H\033[J")
-                        elif cmd in ("exit", "quit"): raise KeyboardInterrupt
+                        elif cmd in ("exit", "quit", "kill"): raise KeyboardInterrupt
                         elif cmd == "nick" and len(parts) > 1:
                             old = bc.username
                             bc.username = parts[1]
@@ -80,15 +79,21 @@ def run_cli():
                             bc.send({"from": "System", "content": f"{old} changed name to {bc.username}"})
                         input_buffer = ""
                     elif input_buffer.strip():
-                        bc.send({"content": input_buffer})
+                        # Direct message handling
+                        if input_buffer.startswith(';@'):
+                            parts = input_buffer[2:].split(' ', 1)
+                            if len(parts) == 2:
+                                bc.send({"to": parts[0], "content": parts[1]})
+                        else:
+                            bc.send({"content": input_buffer})
                         input_buffer = ""
                     
-                    # Periodic Save: Persist current room history to memory.json
+                    # Persistence
                     if 'rooms' not in mem: mem['rooms'] = {}
                     mem['rooms'][room] = bc.display_history[-50:]
                     save_memory(mem)
-                    
                     bc._refresh_ui()
+
                 elif char in ('\x7f', '\x08'):
                     input_buffer = input_buffer[:-1]
                     reprint_input()
@@ -97,7 +102,6 @@ def run_cli():
                     sys.stdout.write(char)
                     sys.stdout.flush()
     except KeyboardInterrupt:
-        # Final save on exit
         if 'rooms' not in mem: mem['rooms'] = {}
         mem['rooms'][room] = bc.display_history[-50:]
         save_memory(mem)
