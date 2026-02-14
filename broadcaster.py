@@ -2,6 +2,8 @@ import asyncio
 import threading
 import sys
 import uuid
+import json
+import os
 from supabase import create_async_client
 from colorama import Fore, Style, init
 
@@ -16,7 +18,9 @@ class Broadcaster:
         self.terminal_lock = terminal_lock
         self.reprint_callback = reprint_callback
         self._user_list = set()
-        self.msg_history = [] # Tracks last 10 message IDs for ;dlt
+        
+        self.display_history = [] 
+        self.my_msg_ids = []
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._run_loop, daemon=True).start()
@@ -29,32 +33,46 @@ class Broadcaster:
     async def _init_async(self, url: str, key: str):
         try:
             self.client = await create_async_client(url, key)
+            # Ensure the channel name includes the room ID for isolation
             self.channel = self.client.channel(f"room_{self.room}")
 
             def on_msg(payload):
                 data = payload["payload"]
                 event_type = data.get("type", "chat")
                 
-                # Delete logic
+                # Scope check: Only handle messages intended for this room
+                if event_type == "history_request" and data["from"] != self.username:
+                    self.send({"type": "history_transfer", "to": data["from"], "content": self.display_history})
+                    return
+
+                if event_type == "history_transfer" and data.get("to") == self.username:
+                    if not self.display_history:
+                        self.display_history = data["content"]
+                        self._refresh_ui()
+                    return
+
                 if event_type == "delete":
-                    self._print_system_line(f"{Fore.RED}System: A message was deleted by {data['from']}{Style.RESET_ALL}")
+                    target_id = data.get("target_id")
+                    self.display_history = [m for m in self.display_history if m['id'] != target_id]
+                    self._refresh_ui()
                     return
 
                 sender = data["from"]
                 msg = data["content"]
                 target = data.get("to")
-                
                 if sender == self.username: return
                 
+                color = self._color_for_user(sender)
                 if sender == "System":
-                    self._print_system_line(f"{Fore.YELLOW}System: {msg}{Style.RESET_ALL}")
+                    formatted = f"{Fore.YELLOW}System: {msg}{Style.RESET_ALL}"
+                elif target:
+                    header = f"{color}[{sender} to me]{Style.RESET_ALL}" if target == self.username else f"{color}[{sender} to {target}]{Style.RESET_ALL}"
+                    formatted = f"{header} {msg}"
                 else:
-                    color = self._color_for_user(sender)
-                    if target:
-                        header = f"{color}[{sender} to me]{Style.RESET_ALL}" if target == self.username else f"{color}[{sender} to {target}]{Style.RESET_ALL}"
-                    else:
-                        header = f"{color}[{sender}]{Style.RESET_ALL}"
-                    self._print_system_line(f"{header} {msg}")
+                    formatted = f"{color}[{sender}]{Style.RESET_ALL} {msg}"
+
+                self._add_to_history(data.get("id"), formatted)
+                self._refresh_ui()
 
             def on_sync():
                 new_users = set()
@@ -64,65 +82,59 @@ class Broadcaster:
                         name = presence.get('user')
                         if name: new_users.add(name)
                 
-                # Detect Joins/Leaves
                 for user in new_users - self._user_list:
                     if user != self.username:
-                        self._print_system_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
+                        self._add_to_history(None, f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
                 for user in self._user_list - new_users:
                     if user != self.username:
-                        self._print_system_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
+                        self._add_to_history(None, f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
                 
                 self._user_list = new_users
+                self._refresh_ui()
 
             self.channel.on_broadcast("msg", on_msg)
             self.channel.on_presence_sync(on_sync)
-            
             await self.channel.subscribe()
             await self.channel.track({'user': self.username})
             self.enabled = True
             
-            # Connection Watchdog
-            asyncio.create_task(self._maintain_connection())
+            # Request history from others in THIS room only
+            self.send({"type": "history_request", "from": self.username, "content": ""})
 
         except Exception:
             self.enabled = False
 
-    async def _maintain_connection(self):
-        """Periodically ensures the user is still tracked in the presence state."""
-        while True:
-            await asyncio.sleep(30)
-            if self.enabled and self.channel:
-                try:
-                    # Re-track if we have been dropped from the server list
-                    if self.username not in self._user_list:
-                        await self.channel.track({'user': self.username})
-                except:
-                    pass
+    def _add_to_history(self, msg_id, formatted_text):
+        self.display_history.append({"id": msg_id, "text": formatted_text})
+        if len(self.display_history) > 50: self.display_history.pop(0)
 
-    def get_active_users(self):
-        return sorted(list(self._user_list))
-
-    def _print_system_line(self, text):
+    def _refresh_ui(self):
         with self.terminal_lock:
-            sys.stdout.write(f"\r\033[K{text}\n")
+            sys.stdout.write("\033[H\033[J") 
+            print(f"{Fore.CYAN}Room: {self.room}{Style.RESET_ALL} | {Fore.GREEN}User: {self.username}{Style.RESET_ALL}\n")
+            for entry in self.display_history:
+                print(entry["text"])
             self.reprint_callback()
             sys.stdout.flush()
 
-    def _color_for_user(self, name):
-        colors = [Fore.CYAN, Fore.MAGENTA, Fore.YELLOW, Fore.BLUE]
-        return colors[hash(name) % len(colors)]
-
     def send(self, payload: dict):
         if not self.enabled or self.channel is None: return
-        
-        # Assign ID and track locally for deletion
         msg_id = str(uuid.uuid4())
         payload["id"] = msg_id
-        if payload.get("type") != "delete":
-            self.msg_history.insert(0, msg_id)
-            if len(self.msg_history) > 10: self.msg_history.pop()
+        payload["from"] = self.username
+        
+        if payload.get("type") not in ["delete", "history_request", "history_transfer"]:
+            self.my_msg_ids.insert(0, msg_id)
+            target = payload.get("to")
+            header = f"{Fore.GREEN}[me to {target}]{Style.RESET_ALL}" if target else f"{Fore.GREEN}[me]{Style.RESET_ALL}"
+            self._add_to_history(msg_id, f"{header} {payload['content']}")
 
         async def _send():
             try: await self.channel.send_broadcast("msg", payload)
-            except Exception: pass
+            except: pass
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
+        self._refresh_ui()
+
+    def _color_for_user(self, name):
+        colors = [Fore.CYAN, Fore.MAGENTA, Fore.YELLOW, Fore.BLUE]
+        return colors[hash(str(name)) % len(colors)]

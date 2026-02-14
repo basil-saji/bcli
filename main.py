@@ -1,6 +1,4 @@
-import sys
-import time
-import threading
+import sys, time, threading, json, os
 from broadcaster import Broadcaster
 from colorama import Fore, Style, init
 
@@ -19,99 +17,90 @@ except ImportError:
         return ch
 
 init(autoreset=True)
-
+MEMORY_FILE = "memory.json"
 SUPABASE_URL = "https://wqqckkuycvthvizcwfgn.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcWNra3V5Y3Z0aHZpemN3ZmduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxNDcxMDYsImV4cCI6MjA4MTcyMzEwNn0.d2mfBuqKG8g4NSLb-EMCnzd-U-_mH35FwOxsbjbuGQ8"
 
+def load_memory():
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, 'r') as f: return json.load(f)
+        except: return {}
+    return {}
+
+def save_memory(data):
+    with open(MEMORY_FILE, 'w') as f: json.dump(data, f, indent=4)
+
 def run_cli():
-    room = input("Room id: ")
-    username = input("Username: ")
+    mem = load_memory()
+    
+    # Isolation: Load room history and settings specifically for this session
+    room = input(f"Room id [{mem.get('last_room', 'general')}]: ") or mem.get('last_room', 'general')
+    username = mem.get('username')
+    
+    if not username:
+        username = input("Username: ")
+        mem['username'] = username
+    
+    mem['last_room'] = room
+    save_memory(mem)
+
     input_buffer = ""
     terminal_lock = threading.Lock()
-
     def reprint_input():
         sys.stdout.write(f"\r\033[K> {input_buffer}")
         sys.stdout.flush()
 
     bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username, terminal_lock, reprint_input)
+    
+    # Load Room-Specific Local History if available
+    room_history = mem.get('rooms', {}).get(room, [])
+    bc.display_history = room_history
 
-    print(f"{Fore.YELLOW}Connecting...{Style.RESET_ALL}", end="\r")
     while not bc.enabled: time.sleep(0.1)
-    sys.stdout.write("\033[K")
-    print(f"{Fore.GREEN}Connected to room {room}{Style.RESET_ALL}\n")
-
-    reprint_input()
 
     try:
         while True:
             char = get_key()
             if char == '\x03': raise KeyboardInterrupt
-
             with terminal_lock:
                 if char in ('\r', '\n'):
-                    sys.stdout.write("\r\033[K")
-                    
-                    if input_buffer.startswith(';@'):
-                        parts = input_buffer[2:].split(' ', 1)
-                        if len(parts) == 2:
-                            print(f"{Fore.GREEN}[me to {parts[0]}]{Style.RESET_ALL} {parts[1]}")
-                            bc.send({"from": bc.username, "to": parts[0], "content": parts[1]})
-                        input_buffer = ""
-
-                    elif input_buffer.startswith(';'):
+                    if input_buffer.startswith(';'):
                         parts = input_buffer[1:].split()
                         cmd = parts[0].lower() if parts else ""
-                        
-                        if cmd == "help":
-                            print(f"{Fore.CYAN}--- Available Commands ---")
-                            print(f";help           - Show this help message")
-                            print(f";all            - List all online users")
-                            print(f";@[user] [msg]  - Tag a specific user")
-                            print(f";dlt [index]    - Delete last message (1=newest)")
-                            print(f";nick [name]    - Change your username")
-                            print(f";clear          - Clear the screen")
-                            print(f";exit/quit/kill - Close bcli{Style.RESET_ALL}")
-                        
-                        elif cmd == "all":
-                            users = bc.get_active_users()
-                            print(f"{Fore.CYAN}Online users ({len(users)}): {', '.join(users) if users else 'none'}{Style.RESET_ALL}")
-
-                        elif cmd == "dlt":
-                            try:
-                                idx = int(parts[1]) - 1 if len(parts) > 1 else 0
-                                if 0 <= idx < len(bc.msg_history):
-                                    msg_id = bc.msg_history.pop(idx)
-                                    bc.send({"from": bc.username, "type": "delete", "target_id": msg_id, "content": ""})
-                                    print(f"{Fore.RED}System: Message deleted.{Style.RESET_ALL}")
-                                else:
-                                    print(f"{Fore.RED}System: No message found at that index.{Style.RESET_ALL}")
-                            except: print(f"{Fore.RED}Usage: ;dlt [index]{Style.RESET_ALL}")
-
-                        elif cmd == "clear": sys.stdout.write("\033[H\033[J")
-                        elif cmd in ("exit", "quit", "kill"): raise KeyboardInterrupt
+                        if cmd == "clear": 
+                            bc.display_history = []
+                            sys.stdout.write("\033[H\033[J")
+                        elif cmd in ("exit", "quit"): raise KeyboardInterrupt
                         elif cmd == "nick" and len(parts) > 1:
-                            old_name = bc.username
+                            old = bc.username
                             bc.username = parts[1]
-                            print(f"{Fore.YELLOW}System: Name is now {bc.username}{Style.RESET_ALL}")
-                            bc.send({"from": "System", "content": f"{old_name} changed their name to {bc.username}"})
+                            mem['username'] = bc.username
+                            save_memory(mem)
+                            bc.send({"from": "System", "content": f"{old} changed name to {bc.username}"})
                         input_buffer = ""
-                    
                     elif input_buffer.strip():
-                        print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}")
-                        bc.send({"from": bc.username, "content": input_buffer})
+                        bc.send({"content": input_buffer})
                         input_buffer = ""
                     
-                    reprint_input()
+                    # Periodic Save: Persist current room history to memory.json
+                    if 'rooms' not in mem: mem['rooms'] = {}
+                    mem['rooms'][room] = bc.display_history[-50:]
+                    save_memory(mem)
+                    
+                    bc._refresh_ui()
                 elif char in ('\x7f', '\x08'):
-                    if len(input_buffer) > 0:
-                        input_buffer = input_buffer[:-1]
-                        reprint_input()
+                    input_buffer = input_buffer[:-1]
+                    reprint_input()
                 elif ord(char) >= 32:
                     input_buffer += char
                     sys.stdout.write(char)
                     sys.stdout.flush()
     except KeyboardInterrupt:
-        print(f"\r\033[K\n{Fore.RED}Exiting bcli...{Style.RESET_ALL}")
+        # Final save on exit
+        if 'rooms' not in mem: mem['rooms'] = {}
+        mem['rooms'][room] = bc.display_history[-50:]
+        save_memory(mem)
         sys.exit(0)
 
 if __name__ == "__main__":
