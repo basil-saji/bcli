@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import sys
+import uuid
 from supabase import create_async_client
 from colorama import Fore, Style, init
 
@@ -15,6 +16,7 @@ class Broadcaster:
         self.terminal_lock = terminal_lock
         self.reprint_callback = reprint_callback
         self._user_list = set()
+        self.msg_history = [] # Tracks last 10 message IDs for ;dlt
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._run_loop, daemon=True).start()
@@ -31,9 +33,16 @@ class Broadcaster:
 
             def on_msg(payload):
                 data = payload["payload"]
+                event_type = data.get("type", "chat")
+                
+                # Delete logic
+                if event_type == "delete":
+                    self._print_system_line(f"{Fore.RED}System: A message was deleted by {data['from']}{Style.RESET_ALL}")
+                    return
+
                 sender = data["from"]
                 msg = data["content"]
-                target = data.get("to") # Get the recipient if exists
+                target = data.get("to")
                 
                 if sender == self.username: return
                 
@@ -41,15 +50,10 @@ class Broadcaster:
                     self._print_system_line(f"{Fore.YELLOW}System: {msg}{Style.RESET_ALL}")
                 else:
                     color = self._color_for_user(sender)
-                    # TAGGING LOGIC
                     if target:
-                        if target == self.username:
-                            header = f"{color}[{sender} to me]{Style.RESET_ALL}"
-                        else:
-                            header = f"{color}[{sender} to {target}]{Style.RESET_ALL}"
+                        header = f"{color}[{sender} to me]{Style.RESET_ALL}" if target == self.username else f"{color}[{sender} to {target}]{Style.RESET_ALL}"
                     else:
                         header = f"{color}[{sender}]{Style.RESET_ALL}"
-                        
                     self._print_system_line(f"{header} {msg}")
 
             def on_sync():
@@ -59,11 +63,11 @@ class Broadcaster:
                     for presence in state[key]:
                         name = presence.get('user')
                         if name: new_users.add(name)
-
+                
+                # Detect Joins/Leaves
                 for user in new_users - self._user_list:
                     if user != self.username:
                         self._print_system_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
-                
                 for user in self._user_list - new_users:
                     if user != self.username:
                         self._print_system_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
@@ -76,8 +80,24 @@ class Broadcaster:
             await self.channel.subscribe()
             await self.channel.track({'user': self.username})
             self.enabled = True
+            
+            # Connection Watchdog
+            asyncio.create_task(self._maintain_connection())
+
         except Exception:
             self.enabled = False
+
+    async def _maintain_connection(self):
+        """Periodically ensures the user is still tracked in the presence state."""
+        while True:
+            await asyncio.sleep(30)
+            if self.enabled and self.channel:
+                try:
+                    # Re-track if we have been dropped from the server list
+                    if self.username not in self._user_list:
+                        await self.channel.track({'user': self.username})
+                except:
+                    pass
 
     def get_active_users(self):
         return sorted(list(self._user_list))
@@ -94,6 +114,14 @@ class Broadcaster:
 
     def send(self, payload: dict):
         if not self.enabled or self.channel is None: return
+        
+        # Assign ID and track locally for deletion
+        msg_id = str(uuid.uuid4())
+        payload["id"] = msg_id
+        if payload.get("type") != "delete":
+            self.msg_history.insert(0, msg_id)
+            if len(self.msg_history) > 10: self.msg_history.pop()
+
         async def _send():
             try: await self.channel.send_broadcast("msg", payload)
             except Exception: pass

@@ -26,7 +26,6 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 def run_cli():
     room = input("Room id: ")
     username = input("Username: ")
-    
     input_buffer = ""
     terminal_lock = threading.Lock()
 
@@ -52,19 +51,13 @@ def run_cli():
                 if char in ('\r', '\n'):
                     sys.stdout.write("\r\033[K")
                     
-                    # DIRECT TAGGING HANDLER
                     if input_buffer.startswith(';@'):
                         parts = input_buffer[2:].split(' ', 1)
                         if len(parts) == 2:
-                            target_user = parts[0]
-                            message_text = parts[1]
-                            print(f"{Fore.GREEN}[me to {target_user}]{Style.RESET_ALL} {message_text}")
-                            bc.send({"from": bc.username, "to": target_user, "content": message_text})
-                        else:
-                            print(f"{Fore.RED}Usage: ;@username message{Style.RESET_ALL}")
+                            print(f"{Fore.GREEN}[me to {parts[0]}]{Style.RESET_ALL} {parts[1]}")
+                            bc.send({"from": bc.username, "to": parts[0], "content": parts[1]})
                         input_buffer = ""
 
-                    # COMMAND HANDLER
                     elif input_buffer.startswith(';'):
                         parts = input_buffer[1:].split()
                         cmd = parts[0].lower() if parts else ""
@@ -73,28 +66,34 @@ def run_cli():
                             print(f"{Fore.CYAN}--- Available Commands ---")
                             print(f";help           - Show this help message")
                             print(f";all            - List all online users")
-                            print(f";@[user] [msg]  - Tag a specific user") # Added to help
+                            print(f";@[user] [msg]  - Tag a specific user")
+                            print(f";dlt [index]    - Delete last message (1=newest)")
                             print(f";nick [name]    - Change your username")
                             print(f";clear          - Clear the screen")
                             print(f";exit/quit/kill - Close bcli{Style.RESET_ALL}")
                         
                         elif cmd == "all":
                             users = bc.get_active_users()
-                            print(f"{Fore.CYAN}Online users ({len(users)}): {', '.join(users)}{Style.RESET_ALL}")
+                            print(f"{Fore.CYAN}Online users ({len(users)}): {', '.join(users) if users else 'none'}{Style.RESET_ALL}")
 
-                        elif cmd == "clear":
-                            sys.stdout.write("\033[H\033[J")
-                        elif cmd in ("exit", "quit", "kill"):
-                            raise KeyboardInterrupt
+                        elif cmd == "dlt":
+                            try:
+                                idx = int(parts[1]) - 1 if len(parts) > 1 else 0
+                                if 0 <= idx < len(bc.msg_history):
+                                    msg_id = bc.msg_history.pop(idx)
+                                    bc.send({"from": bc.username, "type": "delete", "target_id": msg_id, "content": ""})
+                                    print(f"{Fore.RED}System: Message deleted.{Style.RESET_ALL}")
+                                else:
+                                    print(f"{Fore.RED}System: No message found at that index.{Style.RESET_ALL}")
+                            except: print(f"{Fore.RED}Usage: ;dlt [index]{Style.RESET_ALL}")
+
+                        elif cmd == "clear": sys.stdout.write("\033[H\033[J")
+                        elif cmd in ("exit", "quit", "kill"): raise KeyboardInterrupt
                         elif cmd == "nick" and len(parts) > 1:
                             old_name = bc.username
-                            new_name = parts[1]
-                            bc.username = new_name
-                            print(f"{Fore.YELLOW}System: Your name is now {new_name}{Style.RESET_ALL}")
-                            bc.send({"from": "System", "content": f"{old_name} changed their name to {new_name}"})
-                        else:
-                            print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
-                        
+                            bc.username = parts[1]
+                            print(f"{Fore.YELLOW}System: Name is now {bc.username}{Style.RESET_ALL}")
+                            bc.send({"from": "System", "content": f"{old_name} changed their name to {bc.username}"})
                         input_buffer = ""
                     
                     elif input_buffer.strip():
@@ -103,12 +102,10 @@ def run_cli():
                         input_buffer = ""
                     
                     reprint_input()
-
                 elif char in ('\x7f', '\x08'):
                     if len(input_buffer) > 0:
                         input_buffer = input_buffer[:-1]
                         reprint_input()
-
                 elif ord(char) >= 32:
                     input_buffer += char
                     sys.stdout.write(char)
