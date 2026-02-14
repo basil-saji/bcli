@@ -105,6 +105,10 @@ class Broadcaster:
         except Exception:
             self.enabled = False
 
+    def get_users(self):
+        """Public accessor for the active user list."""
+        return sorted(list(self._user_list))
+
     def _save_file(self, filename, content, is_binary=False):
         try:
             path = os.path.join(self.download_dir, filename)

@@ -1,0 +1,49 @@
+██████╗  ██████╗██╗     ██╗
+██╔══██╗██╔════╝██║     ██║
+██████╔╝██║     ██║     ██║
+██╔══██╗██║     ██║     ██║
+██████╔╝╚██████╗███████╗██║
+╚═════╝  ╚═════╝╚══════╝╚═╝
+
+Repo: https://github.com/basil-saji/bcli
+Author: Basil Saji
+
+
+1. INSTALLATION
+------------------
+Linux/macOS:
+curl -sSL https://raw.githubusercontent.com/basil-saji/bcli/main/install.sh | bash
+
+Windows:
+iwr https://raw.githubusercontent.com/basil-saji/bcli/main/install.ps1 | iex
+
+2. RUNNING
+------------------
+Once installed, type "bcli" in your terminal to start.
+
+3. MESSAGING & TAGS
+------------------
+- Normal Chat: Just type and press ENTER.
+- Private Tag: ";@username message"
+
+4. MULTILINE CODE MODE
+----------------------
+- Type ";code" and press ENTER.
+- Type your code blocks.
+- Type "END" on a new line and press ENTER to send.
+
+5. FILE SHARING
+------------------
+- Send: ";send path/to/file"
+- Preview: ";show filename"
+- Open in OS: ";open filename"
+- Copy: ";copy filename"
+
+6. SYSTEM COMMANDS
+------------------
+- ";guide" : View this guide again.
+- ";help"  : Show short command list.
+- ";all"   : List online users.
+- ";clear" : Clear the screen.
+- ";kill"  : Force exit.
+- ";kill -s" : Self-destruct (Remove program).

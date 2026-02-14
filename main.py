@@ -1,6 +1,47 @@
-import sys, time, threading, json, os, subprocess, base64
+import sys, time, threading, json, os, subprocess, base64, shutil
+import httpx
 from broadcaster import Broadcaster
 from colorama import Fore, Style, init
+
+# --- REMOTE CONFIG ---
+VERSION = "1.0.0"
+REPO_BASE = "https://raw.githubusercontent.com/basil-saji/bcli/main"
+REPO_VERSION_URL = f"{REPO_BASE}/VERSION"
+GUIDE_URL = f"{REPO_BASE}/GUIDE.txt"
+
+def check_for_updates():
+    """Checks GitHub for a newer version string and pulls if found."""
+    try:
+        sys.stdout.write(f"{Fore.YELLOW}Checking for updates...{Style.RESET_ALL}\r")
+        response = httpx.get(REPO_VERSION_URL, timeout=5.0)
+        if response.status_code == 200:
+            remote_version = response.text.strip()
+            if remote_version != VERSION:
+                sys.stdout.write(f"\r\033[K{Fore.CYAN}New version {remote_version} detected! Updating...{Style.RESET_ALL}\r\n")
+                try:
+                    subprocess.run(["git", "pull"], check=True, capture_output=True)
+                    sys.stdout.write(f"{Fore.GREEN}Update complete. Please restart bcli.{Style.RESET_ALL}\r\n")
+                    sys.exit(0)
+                except Exception:
+                    sys.stdout.write(f"{Fore.RED}Auto-update failed (No git repository found). Please update manually.{Style.RESET_ALL}\r\n")
+        sys.stdout.write("\r\033[K")
+    except Exception:
+        sys.stdout.write("\r\033[K")
+
+def fetch_guide():
+    """Fetches the latest guide from GitHub."""
+    try:
+        sys.stdout.write(f"{Fore.YELLOW}Fetching User Guide...{Style.RESET_ALL}\r")
+        response = httpx.get(GUIDE_URL, timeout=5.0)
+        if response.status_code == 200:
+            content = response.text.replace('\n', '\r\n')
+            sys.stdout.write(f"\r\033[K{Fore.CYAN}--- BCLI USER GUIDE ---{Style.RESET_ALL}\r\n")
+            sys.stdout.write(f"{content}\r\n")
+            sys.stdout.write(f"{Fore.CYAN}-----------------------{Style.RESET_ALL}\r\n")
+        else:
+            sys.stdout.write(f"\r\033[K{Fore.RED}Could not load guide from server.{Style.RESET_ALL}\r\n")
+    except Exception:
+        sys.stdout.write(f"\r\033[K{Fore.RED}Error fetching guide.{Style.RESET_ALL}\r\n")
 
 try:
     import msvcrt
@@ -13,7 +54,8 @@ except ImportError:
         try:
             tty.setraw(sys.stdin.fileno())
             ch = sys.stdin.read(1)
-        finally: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return ch
 
 init(autoreset=True)
@@ -24,17 +66,26 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 def load_mem():
     if os.path.exists(MEMORY_FILE):
         try:
-            with open(MEMORY_FILE, 'r') as f: return json.load(f)
-        except: return {}
+            with open(MEMORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
     return {}
 
 def save_mem(data):
-    with open(MEMORY_FILE, 'w') as f: json.dump(data, f)
+    with open(MEMORY_FILE, 'w') as f:
+        json.dump(data, f)
 
 def run_cli():
+    check_for_updates()
     mem = load_mem()
+
+    # Print guide on first run
+    if not mem:
+        fetch_guide()
+
     room = input("Room id: ").strip() or "general"
-    
+
     username = mem.get("username")
     if not username:
         username = input("Username: ").strip() or f"user_{int(time.time()) % 1000}"
@@ -44,7 +95,6 @@ def run_cli():
 
     input_buffer = ""
     terminal_lock = threading.Lock()
-    
     code_mode = False
     code_lines = []
 
@@ -56,23 +106,23 @@ def run_cli():
     bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username, terminal_lock, reprint_input)
 
     print(f"{Fore.YELLOW}Connecting...{Style.RESET_ALL}", end="\r")
-    while not bc.enabled: 
+    while not bc.enabled:
         time.sleep(0.1)
-    
+
     sys.stdout.write("\r\033[K")
     sys.stdout.write(f"{Fore.GREEN}Connected to room {room}{Style.RESET_ALL}\r\n")
-
     reprint_input()
 
     try:
         while True:
             char = get_key()
-            if char == '\x03': raise KeyboardInterrupt
+            if char == '\x03':
+                raise KeyboardInterrupt
 
             with terminal_lock:
                 if char in ('\r', '\n'):
                     sys.stdout.write("\r\033[K")
-                    
+
                     if code_mode:
                         if input_buffer.strip().upper() == "END":
                             code_mode = False
@@ -98,29 +148,30 @@ def run_cli():
                     elif input_buffer.startswith(';'):
                         parts = input_buffer[1:].split()
                         cmd = parts[0].lower() if parts else ""
-                        
+
                         if cmd == "code":
                             code_mode = True
                             sys.stdout.write(f"{Fore.YELLOW}--- Code Mode (Type 'END' to send) ---\r\n{Style.RESET_ALL}")
-                        
+
                         elif cmd == "send" and len(parts) > 1:
                             filepath = parts[1]
                             if os.path.exists(filepath):
-                                try:
-                                    filename = os.path.basename(filepath)
-                                    is_bin = filepath.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
-                                    
-                                    if is_bin:
-                                        with open(filepath, 'rb') as f:
-                                            content = base64.b64encode(f.read()).decode('utf-8')
-                                    else:
-                                        with open(filepath, 'r') as f:
-                                            content = f.read()
-                                            
-                                    sys.stdout.write(f"{Fore.GREEN}[me shared {filename}]{Style.RESET_ALL} use \";show {filename}\", \";open {filename}\", \";copy {filename}\"\r\n")
-                                    bc.send({"content": content, "type": "file", "filename": filename, "is_binary": is_bin})
-                                except Exception as e:
-                                    sys.stdout.write(f"{Fore.RED}Error: {e}\r\n")
+                                if os.path.getsize(filepath) > 10 * 1024 * 1024:
+                                    sys.stdout.write(f"{Fore.RED}Error: File exceeds 10MB limit.{Style.RESET_ALL}\r\n")
+                                else:
+                                    try:
+                                        filename = os.path.basename(filepath)
+                                        is_bin = filepath.lower().endswith(('.png','.jpg','.jpeg','.gif','.bmp','.pdf'))
+                                        if is_bin:
+                                            with open(filepath, 'rb') as f:
+                                                content = base64.b64encode(f.read()).decode('utf-8')
+                                        else:
+                                            with open(filepath, 'r') as f:
+                                                content = f.read()
+                                        sys.stdout.write(f"{Fore.GREEN}[me shared {filename}]{Style.RESET_ALL} use \";show {filename}\", \";open {filename}\", \";copy {filename}\"\r\n")
+                                        bc.send({"content": content, "type": "file", "filename": filename, "is_binary": is_bin})
+                                    except Exception as e:
+                                        sys.stdout.write(f"{Fore.RED}Error: {e}\r\n")
                             else:
                                 sys.stdout.write(f"{Fore.RED}File not found: {filepath}\r\n")
 
@@ -129,9 +180,9 @@ def run_cli():
                             path = os.path.join(bc.download_dir, filename)
                             if os.path.exists(path):
                                 try:
-                                    is_bin = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
+                                    is_bin = filename.lower().endswith(('.png','.jpg','.jpeg','.gif','.bmp','.pdf'))
                                     if is_bin:
-                                        sys.stdout.write(f"{Fore.RED}System: Cannot display binary file contents in terminal. Use \";open {filename}\" instead.\r\n")
+                                        sys.stdout.write(f"{Fore.RED}System: Cannot display binary in terminal. Use \";open {filename}\" instead.\r\n")
                                     else:
                                         with open(path, 'r') as f:
                                             content = f.read().replace('\n', '\r\n')
@@ -163,9 +214,9 @@ def run_cli():
                             path = os.path.join(bc.download_dir, filename)
                             if os.path.exists(path):
                                 try:
-                                    is_bin = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
+                                    is_bin = filename.lower().endswith(('.png','.jpg','.jpeg','.gif','.bmp','.pdf'))
                                     if is_bin:
-                                        sys.stdout.write(f"{Fore.RED}System: Clipboard copying of binary files is not supported.\r\n")
+                                        sys.stdout.write(f"{Fore.RED}System: Binary file copy not supported.\r\n")
                                     else:
                                         with open(path, 'r') as f:
                                             content = f.read()
@@ -174,59 +225,86 @@ def run_cli():
                                         elif sys.platform == "darwin":
                                             subprocess.run("pbcopy", input=content, text=True, check=True)
                                         else:
-                                            subprocess.run(["xclip", "-selection", "clipboard"], input=content, text=True, check=True)
+                                            subprocess.run(["xclip","-selection","clipboard"], input=content, text=True, check=True)
                                         sys.stdout.write(f"{Fore.CYAN}System: {filename} content copied to clipboard!\r\n")
                                 except Exception as e:
                                     sys.stdout.write(f"{Fore.RED}Error copying to clipboard: {e}\r\n")
                             else:
                                 sys.stdout.write(f"{Fore.RED}File not found in downloads: {filename}\r\n")
 
+                        elif cmd == "kill":
+                            if len(parts) > 1 and parts[1] == "-s":
+                                sys.stdout.write(f"{Fore.RED}System: Wiping all program data and files...{Style.RESET_ALL}\r\n")
+                                base_path = os.path.dirname(os.path.abspath(__file__))
+                                if os.path.exists(os.path.join(base_path, MEMORY_FILE)):
+                                    os.remove(os.path.join(base_path, MEMORY_FILE))
+                                if os.path.exists(os.path.join(base_path, bc.download_dir)):
+                                    shutil.rmtree(os.path.join(base_path, bc.download_dir))
+                                for f in ["main.py","broadcaster.py","VERSION","requirements.txt",".gitignore","GUIDE.txt","README.md"]:
+                                    full_f = os.path.join(base_path, f)
+                                    if os.path.exists(full_f):
+                                        os.remove(full_f)
+                                sys.stdout.write(f"{Fore.YELLOW}System: Program removed. Goodbye.{Style.RESET_ALL}\r\n")
+                                sys.exit(0)
+                            else:
+                                sys.stdout.write(f"{Fore.RED}System: Terminating session...{Style.RESET_ALL}\r\n")
+                                sys.exit(0)
+
+                        elif cmd == "guide":
+                            fetch_guide()
+
                         elif cmd == "help":
                             sys.stdout.write(f"{Fore.CYAN}--- Available Commands ---\r\n")
-                            sys.stdout.write(f";help           - Show help\r\n")
-                            sys.stdout.write(f";code           - Multiline mode\r\n")
-                            sys.stdout.write(f";send [file]    - Send file content\r\n")
-                            sys.stdout.write(f";show [file]    - View downloaded file\r\n")
-                            sys.stdout.write(f";open [file]    - Open downloaded file\r\n")
-                            sys.stdout.write(f";copy [file]    - Copy file to clipboard\r\n")
-                            sys.stdout.write(f";all            - List users\r\n")
-                            sys.stdout.write(f";@[user] [msg]  - Tag user\r\n")
-                            sys.stdout.write(f";nick [name]    - Change name\r\n")
-                            sys.stdout.write(f";clear          - Clear screen\r\n")
-                            sys.stdout.write(f";exit/quit/kill - Exit{Style.RESET_ALL}\r\n")
-                        
+                            sys.stdout.write(f";help           - Show this menu\r\n")
+                            sys.stdout.write(f";guide          - View detailed User Guide\r\n")
+                            sys.stdout.write(f";code           - Enter Multiline Code mode\r\n")
+                            sys.stdout.write(f";send [file]    - Share local file/image\r\n")
+                            sys.stdout.write(f";show [file]    - Preview a received file\r\n")
+                            sys.stdout.write(f";open [file]    - Open a file in OS\r\n")
+                            sys.stdout.write(f";copy [file]    - Copy text to clipboard\r\n")
+                            sys.stdout.write(f";all            - Show online users\r\n")
+                            sys.stdout.write(f";@[user] [msg]  - Private message\r\n")
+                            sys.stdout.write(f";nick [name]    - Rename yourself\r\n")
+                            sys.stdout.write(f";clear          - Clear terminal\r\n")
+                            sys.stdout.write(f";kill           - Hard exit\r\n")
+                            sys.stdout.write(f";kill -s        - Uninstall bcli{Style.RESET_ALL}\r\n")
+
                         elif cmd == "all":
-                            users = sorted(list(bc._user_list))
+                            users = bc.get_users()
                             sys.stdout.write(f"{Fore.CYAN}Online: {', '.join(users) if users else 'none'}\r\n")
 
-                        elif cmd == "clear": 
+                        elif cmd == "clear":
                             sys.stdout.write("\033[H\033[J")
-                        elif cmd in ("exit", "quit", "kill"): 
+
+                        elif cmd in ("exit","quit"):
                             raise KeyboardInterrupt
+
                         elif cmd == "nick" and len(parts) > 1:
                             old = bc.username
                             bc.username = parts[1]
                             save_mem({"username": bc.username})
                             sys.stdout.write(f"{Fore.YELLOW}System: Name is now {bc.username}\r\n")
                             bc.send({"from": "System", "content": f"{old} changed name to {bc.username}"})
-                        
+
                         input_buffer = ""
-                    
+
                     elif input_buffer.strip():
                         sys.stdout.write(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}\r\n")
                         bc.send({"content": input_buffer})
                         input_buffer = ""
-                    
+
                     reprint_input()
 
-                elif char in ('\x7f', '\x08'):
+                elif char in ('\x7f','\x08'):
                     if len(input_buffer) > 0:
                         input_buffer = input_buffer[:-1]
                         reprint_input()
+
                 elif ord(char) >= 32:
                     input_buffer += char
                     sys.stdout.write(char)
                     sys.stdout.flush()
+
     except KeyboardInterrupt:
         sys.stdout.write(f"\r\033[K\r\n{Fore.RED}Exiting...{Style.RESET_ALL}\r\n")
         sys.exit(0)
