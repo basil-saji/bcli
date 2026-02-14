@@ -1,0 +1,14 @@
+{
+  "redirects": [
+    {
+      "source": "/linux",
+      "destination": "https://raw.githubusercontent.com/basil-saji/bcli/main/install.sh",
+      "permanent": false
+    },
+    {
+      "source": "/windows",
+      "destination": "https://raw.githubusercontent.com/basil-saji/bcli/main/installer.ps1",
+      "permanent": false
+    }
+  ]
+}
