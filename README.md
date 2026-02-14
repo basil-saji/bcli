@@ -30,13 +30,20 @@
 ```powershell
 iwr https://raw.githubusercontent.com/basil-saji/bcli/main/install.ps1 | iex
 ```
+OR
+```powershell
+iwr https://bclitool.vercel.app/windows | iex
+```
 
 ### Linux / macOS (Bash)
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/basil-saji/bcli/main/install.sh | bash
 ```
-
+OR
+```bash
+curl -sSL https://bclitool.vercel.app/linux | bash
+```
 ---
 
 ## 🛠 Usage
