@@ -4,11 +4,10 @@ import threading
 from broadcaster import Broadcaster
 from colorama import Fore, Style, init
 
-# Try to import msvcrt for Windows or termios for Linux/Mac
+# Cross-platform Key Capture
 try:
     import msvcrt
-    def get_key():
-        return msvcrt.getch().decode('utf-8', errors='ignore')
+    def get_key(): return msvcrt.getch().decode('utf-8', errors='ignore')
 except ImportError:
     import tty, termios
     def get_key():
@@ -17,8 +16,7 @@ except ImportError:
         try:
             tty.setraw(sys.stdin.fileno())
             ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        finally: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return ch
 
 init(autoreset=True)
@@ -30,51 +28,51 @@ def run_cli():
     room = input("Room id: ")
     username = input("Username: ")
     
-    print(f"{Fore.YELLOW}Connecting...{Style.RESET_ALL}", end="\r")
-    
+    input_buffer = ""
     terminal_lock = threading.Lock()
-    bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username, terminal_lock)
 
-    while not bc.enabled:
-        time.sleep(0.1)
+    def reprint_input():
+        sys.stdout.write(f"\r\033[K> {input_buffer}")
+        sys.stdout.flush()
 
+    bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username, terminal_lock, reprint_input)
+
+    print(f"{Fore.YELLOW}Connecting...{Style.RESET_ALL}", end="\r")
+    while not bc.enabled: time.sleep(0.1)
     sys.stdout.write("\033[K")
     print(f"{Fore.GREEN}Connected to room {room}{Style.RESET_ALL}\n")
 
-    input_buffer = ""
-    sys.stdout.write("> ")
-    sys.stdout.flush()
+    reprint_input()
 
     try:
         while True:
             char = get_key()
+            
+            # EXIT FIX: Check for Ctrl+C (Hex \x03) manually
+            if char == '\x03':
+                raise KeyboardInterrupt
 
             with terminal_lock:
-                if char in ('\r', '\n'):  # Enter key
+                if char in ('\r', '\n'): # ENTER
                     if input_buffer.strip():
-                        # Clear the current typing line
                         sys.stdout.write("\r\033[K")
                         print(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}")
-                        
                         bc.send({"from": username, "content": input_buffer})
                         input_buffer = ""
-                    
-                    sys.stdout.write("> ")
-                    sys.stdout.flush()
+                    reprint_input()
 
-                elif char in ('\x7f', '\x08'):  # Backspace
+                elif char in ('\x7f', '\x08'): # BACKSPACE
                     if len(input_buffer) > 0:
                         input_buffer = input_buffer[:-1]
-                        sys.stdout.write("\b \b") # Move back, overwrite with space, move back
-                        sys.stdout.flush()
+                        reprint_input()
 
-                elif ord(char) >= 32:  # Printable characters
+                elif ord(char) >= 32: # TYPING
                     input_buffer += char
                     sys.stdout.write(char)
                     sys.stdout.flush()
-
     except KeyboardInterrupt:
-        print(f"\n{Fore.RED}Exiting...{Style.RESET_ALL}")
+        print(f"\r\033[K\n{Fore.RED}Exiting bcli...{Style.RESET_ALL}")
+        sys.exit(0)
 
 if __name__ == "__main__":
     run_cli()

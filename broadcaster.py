@@ -7,16 +7,16 @@ from colorama import Fore, Style, init
 init(autoreset=True)
 
 class Broadcaster:
-    def __init__(self, url: str, key: str, room: str, username: str, terminal_lock):
+    def __init__(self, url: str, key: str, room: str, username: str, terminal_lock, reprint_callback):
         self.enabled = False
         self.channel = None
         self.room = room
         self.username = username
-        self.terminal_lock = terminal_lock # Shared lock for thread-safe printing
+        self.terminal_lock = terminal_lock
+        self.reprint_callback = reprint_callback
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._run_loop, daemon=True).start()
-
         asyncio.run_coroutine_threadsafe(self._init_async(url, key), self._loop)
 
     def _run_loop(self):
@@ -32,17 +32,13 @@ class Broadcaster:
                 data = payload["payload"]
                 sender = data["from"]
                 msg = data["content"]
-
-                if sender == self.username:
-                    return
+                if sender == self.username: return
 
                 color = self._color_for_user(sender)
-                
                 with self.terminal_lock:
-                    # Move to start of line, clear it, print message
-                    sys.stdout.write(f"\r\033[K{color}[{sender}]{Style.RESET_ALL} {msg}\n")
-                    # Re-print the prompt and current buffer (handled in main.py)
-                    sys.stdout.write("> ") 
+                    sys.stdout.write(f"\r\033[K")
+                    sys.stdout.write(f"{color}[{sender}]{Style.RESET_ALL} {msg}\n")
+                    self.reprint_callback()
                     sys.stdout.flush()
 
             self.channel.on_broadcast("msg", on_msg)
@@ -56,12 +52,8 @@ class Broadcaster:
         return colors[hash(name) % len(colors)]
 
     def send(self, payload: dict):
-        if not self.enabled or self.channel is None:
-            return
-
+        if not self.enabled or self.channel is None: return
         async def _send():
-            try:
-                await self.channel.send_broadcast("msg", payload)
-            except Exception:
-                pass
+            try: await self.channel.send_broadcast("msg", payload)
+            except Exception: pass
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
