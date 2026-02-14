@@ -17,7 +17,7 @@ class Broadcaster:
         self.reprint_callback = reprint_callback
         self._user_list = set()
         
-        # History stores dictionaries for structured transfer: {"from": sender, "to": target, "content": msg, "type": type}
+        # History stores dictionaries: {"from": sender, "to": target, "content": msg, "type": type}
         self.display_history = [] 
 
         self._loop = asyncio.new_event_loop()
@@ -55,10 +55,7 @@ class Broadcaster:
                 if sender == self.username:
                     return
                 
-                # Add to history as structured data
                 self._add_to_history(sender, target, msg, msg_type)
-                
-                # Format for display
                 formatted = self._format_msg(sender, target, msg, msg_type)
                 self._print_line(formatted)
 
@@ -91,6 +88,9 @@ class Broadcaster:
             self.enabled = False
 
     def _format_msg(self, sender, target, content, msg_type="chat"):
+        # Fix internal newlines for raw terminal mode
+        content = content.replace('\n', '\r\n')
+        
         if sender == "System":
             return f"{Fore.YELLOW}System: {content}{Style.RESET_ALL}"
         
@@ -98,7 +98,6 @@ class Broadcaster:
         color = Fore.GREEN if is_me else self._color_for_user(sender)
         display_name = "me" if is_me else sender
 
-        # Special formatting for files
         if msg_type == "file":
             header = f"{Fore.YELLOW}[{display_name} shared a file]{Style.RESET_ALL}"
             return f"{header}\r\n{content}"
@@ -127,6 +126,7 @@ class Broadcaster:
 
     def _print_line(self, text):
         with self.terminal_lock:
+            # text already has \r\n internally via _format_msg
             sys.stdout.write(f"\r\033[K{text}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
@@ -147,8 +147,6 @@ class Broadcaster:
             target = payload.get("to")
             content = payload.get('content', '')
             msg_type = payload.get('type', 'chat')
-            
-            # Add structured data to history
             self._add_to_history(sender, target, content, msg_type)
 
         async def _send():

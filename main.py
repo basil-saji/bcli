@@ -18,7 +18,6 @@ except ImportError:
 
 init(autoreset=True)
 MEMORY_FILE = "memory.json"
-#
 SUPABASE_URL = "https://wqqckkuycvthvizcwfgn.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcWNra3V5Y3Z0aHZpemN3ZmduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxNDcxMDYsImV4cCI6MjA4MTcyMzEwNn0.d2mfBuqKG8g4NSLb-EMCnzd-U-_mH35FwOxsbjbuGQ8"
 
@@ -45,13 +44,14 @@ def run_cli():
 
     input_buffer = ""
     terminal_lock = threading.Lock()
-    # State tracking for multiline code mode
+    
+    # Mode states
     code_mode = False
     code_lines = []
 
     def reprint_input():
-        prompt = "CODE> " if code_mode else "> "
-        sys.stdout.write(f"\r\033[K{prompt}{input_buffer}")
+        prefix = "CODE> " if code_mode else "> "
+        sys.stdout.write(f"\r\033[K{prefix}{input_buffer}")
         sys.stdout.flush()
 
     bc = Broadcaster(SUPABASE_URL, SUPABASE_KEY, room, username, terminal_lock, reprint_input)
@@ -75,12 +75,13 @@ def run_cli():
                 if char in ('\r', '\n'):
                     sys.stdout.write("\r\033[K")
                     
-                    # Handle Multiline Code Mode logic
                     if code_mode:
                         if input_buffer.strip().upper() == "END":
                             code_mode = False
                             full_code = "\n".join(code_lines)
-                            sys.stdout.write(f"{Fore.GREEN}[me code]{Style.RESET_ALL}\r\n{full_code}\r\n")
+                            # Render locally with proper carriage returns
+                            local_display = full_code.replace('\n', '\r\n')
+                            sys.stdout.write(f"{Fore.GREEN}[me code]{Style.RESET_ALL}\r\n{local_display}\r\n")
                             bc.send({"content": full_code, "type": "chat"})
                             code_lines = []
                         else:
@@ -90,7 +91,6 @@ def run_cli():
                         reprint_input()
                         continue
 
-                    # Standard Command Handling
                     if input_buffer.startswith(';@'):
                         parts = input_buffer[2:].split(' ', 1)
                         if len(parts) == 2:
@@ -104,26 +104,24 @@ def run_cli():
                         
                         if cmd == "code":
                             code_mode = True
-                            sys.stdout.write(f"{Fore.YELLOW}--- Multiline Mode (Type 'END' to send) ---\r\n{Style.RESET_ALL}")
+                            sys.stdout.write(f"{Fore.YELLOW}--- Code Mode (Type 'END' to send) ---\r\n{Style.RESET_ALL}")
                         
                         elif cmd == "send" and len(parts) > 1:
                             filepath = parts[1]
                             if os.path.exists(filepath):
-                                try:
-                                    with open(filepath, 'r') as f:
-                                        content = f.read()
-                                    sys.stdout.write(f"{Fore.GREEN}[me shared {filepath}]{Style.RESET_ALL}\r\n")
-                                    bc.send({"content": content, "type": "file"})
-                                except Exception as e:
-                                    sys.stdout.write(f"{Fore.RED}Error reading file: {e}\r\n")
+                                with open(filepath, 'r') as f:
+                                    content = f.read()
+                                local_content = content.replace('\n', '\r\n')
+                                sys.stdout.write(f"{Fore.GREEN}[me shared {filepath}]{Style.RESET_ALL}\r\n{local_content}\r\n")
+                                bc.send({"content": content, "type": "file"})
                             else:
                                 sys.stdout.write(f"{Fore.RED}File not found: {filepath}\r\n")
 
                         elif cmd == "help":
                             sys.stdout.write(f"{Fore.CYAN}--- Available Commands ---\r\n")
                             sys.stdout.write(f";help           - Show help\r\n")
-                            sys.stdout.write(f";code           - Multiline mode\r\n")
-                            sys.stdout.write(f";send [file]    - Share file contents\r\n")
+                            sys.stdout.write(f";code           - Multiline code mode\r\n")
+                            sys.stdout.write(f";send [file]    - Send file content\r\n")
                             sys.stdout.write(f";all            - List users\r\n")
                             sys.stdout.write(f";@[user] [msg]  - Tag user\r\n")
                             sys.stdout.write(f";nick [name]    - Change name\r\n")
@@ -148,7 +146,6 @@ def run_cli():
                         input_buffer = ""
                     
                     elif input_buffer.strip():
-                        # Standard immediate local display
                         sys.stdout.write(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}\r\n")
                         bc.send({"content": input_buffer})
                         input_buffer = ""
