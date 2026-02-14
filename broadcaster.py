@@ -17,7 +17,7 @@ class Broadcaster:
         self.reprint_callback = reprint_callback
         self._user_list = set()
         
-        # History for new joiners
+        # History stores raw dicts: {"from": ..., "content": ..., "to": ...}
         self.display_history = [] 
 
         self._loop = asyncio.new_event_loop()
@@ -48,25 +48,12 @@ class Broadcaster:
                         self._render_batch(self.display_history)
                     return
 
-                sender = data.get("from", "Unknown")
-                msg = data.get("content", "")
-                target = data.get("to")
-                
-                if sender == self.username:
+                if data.get("from") == self.username:
                     return
-                
-                color = self._color_for_user(sender)
-                if sender == "System":
-                    formatted = f"{Fore.YELLOW}System: {msg}{Style.RESET_ALL}"
-                elif target:
-                    header = f"{color}[{sender} to me]{Style.RESET_ALL}" if target == self.username else f"{color}[{sender} to {target}]{Style.RESET_ALL}"
-                    formatted = f"{header} {msg}"
-                else:
-                    header = f"{color}[{sender}]{Style.RESET_ALL}"
-                    formatted = f"{header} {msg}"
 
-                self._add_to_history(formatted)
-                self._print_line(formatted)
+                # Store raw data for dynamic formatting
+                self._add_to_history(data)
+                self._print_line(data)
 
             def on_sync():
                 new_users = set()
@@ -78,11 +65,15 @@ class Broadcaster:
                 
                 for user in new_users - self._user_list:
                     if user != self.username:
-                        self._print_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
+                        msg = {"from": "System", "content": f"{user} joined the chat"}
+                        self._add_to_history(msg)
+                        self._print_line(msg)
                 
                 for user in self._user_list - new_users:
                     if user != self.username:
-                        self._print_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
+                        msg = {"from": "System", "content": f"{user} left the chat"}
+                        self._add_to_history(msg)
+                        self._print_line(msg)
                 
                 self._user_list = new_users
 
@@ -92,28 +83,49 @@ class Broadcaster:
             await self.channel.track({'user': self.username})
             self.enabled = True
             
-            # Initial history request
             self.send({"type": "history_request", "from": self.username, "content": ""})
 
         except Exception:
             self.enabled = False
 
-    def _add_to_history(self, text):
-        self.display_history.append(text)
+    def _add_to_history(self, msg_obj):
+        self.display_history.append(msg_obj)
         if len(self.display_history) > 50:
             self.display_history.pop(0)
+
+    def _get_formatted(self, msg_obj):
+        """Dynamically determines if a message is 'me' or 'sender'."""
+        sender = msg_obj.get("from", "Unknown")
+        content = msg_obj.get("content", "")
+        target = msg_obj.get("to")
+
+        if sender == self.username:
+            header = f"{Fore.GREEN}[me to {target}]{Style.RESET_ALL}" if target else f"{Fore.GREEN}[me]{Style.RESET_ALL}"
+        elif sender == "System":
+            return f"{Fore.YELLOW}System: {content}{Style.RESET_ALL}"
+        else:
+            color = self._color_for_user(sender)
+            if target == self.username:
+                header = f"{color}[{sender} to me]{Style.RESET_ALL}"
+            elif target:
+                header = f"{color}[{sender} to {target}]{Style.RESET_ALL}"
+            else:
+                header = f"{color}[{sender}]{Style.RESET_ALL}"
+        
+        return f"{header} {content}"
 
     def _render_batch(self, history_list):
         with self.terminal_lock:
             sys.stdout.write("\r\033[K")
-            for msg in history_list:
-                sys.stdout.write(f"{msg}\r\n")
+            for msg_obj in history_list:
+                sys.stdout.write(f"{self._get_formatted(msg_obj)}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
 
-    def _print_line(self, text):
+    def _print_line(self, msg_obj):
         with self.terminal_lock:
-            sys.stdout.write(f"\r\033[K{text}\r\n")
+            formatted = self._get_formatted(msg_obj)
+            sys.stdout.write(f"\r\033[K{formatted}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
 
@@ -125,15 +137,12 @@ class Broadcaster:
         if not self.enabled:
             return
         
-        # Ensure 'from' is present for all outgoing payloads
         if "from" not in payload:
             payload["from"] = self.username
             
+        # Add to local history as raw data before sending
         if payload.get("type") not in ["history_request", "history_transfer"]:
-            # Logic for locally displaying your own message
-            target = payload.get("to")
-            header = f"{Fore.GREEN}[me to {target}]{Style.RESET_ALL}" if target else f"{Fore.GREEN}[me]{Style.RESET_ALL}"
-            self._add_to_history(f"{header} {payload.get('content', '')}")
+            self._add_to_history(payload)
 
         async def _send():
             try:

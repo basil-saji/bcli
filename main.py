@@ -73,7 +73,6 @@ def run_cli():
                     if input_buffer.startswith(';@'):
                         parts = input_buffer[2:].split(' ', 1)
                         if len(parts) == 2:
-                            sys.stdout.write(f"{Fore.GREEN}[me to {parts[0]}]{Style.RESET_ALL} {parts[1]}\r\n")
                             bc.send({"to": parts[0], "content": parts[1]})
                         input_buffer = ""
 
@@ -103,12 +102,11 @@ def run_cli():
                             bc.username = parts[1]
                             save_mem({"username": bc.username})
                             sys.stdout.write(f"{Fore.YELLOW}System: Name is now {bc.username}\r\n")
-                            bc.send({"from": "System", "content": f"{old} changed their name to {bc.username}"})
+                            bc.send({"from": "System", "content": f"{old} changed name to {bc.username}"})
                         
                         input_buffer = ""
                     
                     elif input_buffer.strip():
-                        sys.stdout.write(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}\r\n")
                         bc.send({"content": input_buffer})
                         input_buffer = ""
                     
