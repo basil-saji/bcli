@@ -1,4 +1,4 @@
-import sys, time, threading, json, os, subprocess, base64 # Added base64
+import sys, time, threading, json, os, subprocess, base64
 from broadcaster import Broadcaster
 from colorama import Fore, Style, init
 
@@ -108,11 +108,9 @@ def run_cli():
                             if os.path.exists(filepath):
                                 try:
                                     filename = os.path.basename(filepath)
-                                    # Binary detection for images/PDFs
                                     is_bin = filepath.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
                                     
                                     if is_bin:
-                                        # Read as binary and encode to Base64
                                         with open(filepath, 'rb') as f:
                                             content = base64.b64encode(f.read()).decode('utf-8')
                                     else:
@@ -131,7 +129,6 @@ def run_cli():
                             path = os.path.join(bc.download_dir, filename)
                             if os.path.exists(path):
                                 try:
-                                    # Check if the file is binary before showing text
                                     is_bin = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
                                     if is_bin:
                                         sys.stdout.write(f"{Fore.RED}System: Cannot display binary file contents in terminal. Use \";open {filename}\" instead.\r\n")
@@ -166,7 +163,6 @@ def run_cli():
                             path = os.path.join(bc.download_dir, filename)
                             if os.path.exists(path):
                                 try:
-                                    # Avoid copying binary data to clipboard unless text-based
                                     is_bin = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf'))
                                     if is_bin:
                                         sys.stdout.write(f"{Fore.RED}System: Clipboard copying of binary files is not supported.\r\n")
