@@ -73,9 +73,9 @@ def run_cli():
                     if input_buffer.startswith(';@'):
                         parts = input_buffer[2:].split(' ', 1)
                         if len(parts) == 2:
-                            # Local display logic handled by bc._print_line
+                            # Immediate local display
+                            sys.stdout.write(f"{Fore.GREEN}[me to {parts[0]}]{Style.RESET_ALL} {parts[1]}\r\n")
                             bc.send({"to": parts[0], "content": parts[1]})
-                            bc._print_line({"from": bc.username, "to": parts[0], "content": parts[1]})
                         input_buffer = ""
 
                     elif input_buffer.startswith(';'):
@@ -83,11 +83,18 @@ def run_cli():
                         cmd = parts[0].lower() if parts else ""
                         
                         if cmd == "help":
-                            sys.stdout.write(f"{Fore.CYAN}--- Commands ---\r\n")
-                            sys.stdout.write(f";all, ;nick [name], ;clear, ;exit\r\n")
+                            sys.stdout.write(f"{Fore.CYAN}--- Available Commands ---\r\n")
+                            sys.stdout.write(f";help           - Show help\r\n")
+                            sys.stdout.write(f";all            - List users\r\n")
+                            sys.stdout.write(f";@[user] [msg]  - Tag user\r\n")
+                            sys.stdout.write(f";nick [name]    - Change name\r\n")
+                            sys.stdout.write(f";clear          - Clear screen\r\n")
+                            sys.stdout.write(f";exit/quit/kill - Exit{Style.RESET_ALL}\r\n")
+                        
                         elif cmd == "all":
                             users = sorted(list(bc._user_list))
-                            sys.stdout.write(f"{Fore.CYAN}Online: {', '.join(users)}\r\n")
+                            sys.stdout.write(f"{Fore.CYAN}Online: {', '.join(users) if users else 'none'}\r\n")
+
                         elif cmd == "clear": 
                             sys.stdout.write("\033[H\033[J")
                         elif cmd in ("exit", "quit", "kill"): 
@@ -96,15 +103,15 @@ def run_cli():
                             old = bc.username
                             bc.username = parts[1]
                             save_mem({"username": bc.username})
-                            bc.send({"from": "System", "content": f"{old} changed name to {bc.username}"})
-                            sys.stdout.write(f"{Fore.YELLOW}System: Your name is now {bc.username}\r\n")
+                            sys.stdout.write(f"{Fore.YELLOW}System: Name is now {bc.username}\r\n")
+                            bc.send({"from": "System", "content": f"{old} changed their name to {bc.username}"})
                         
                         input_buffer = ""
                     
                     elif input_buffer.strip():
-                        # Local display via broadcaster logic
+                        # Immediate local display
+                        sys.stdout.write(f"{Fore.GREEN}[me]{Style.RESET_ALL} {input_buffer}\r\n")
                         bc.send({"content": input_buffer})
-                        bc._print_line({"from": bc.username, "content": input_buffer})
                         input_buffer = ""
                     
                     reprint_input()

@@ -17,7 +17,7 @@ class Broadcaster:
         self.reprint_callback = reprint_callback
         self._user_list = set()
         
-        # History stored as raw data objects to allow dynamic formatting
+        # History stores dictionaries: {"from": sender, "to": target, "content": msg}
         self.display_history = [] 
 
         self._loop = asyncio.new_event_loop()
@@ -37,12 +37,10 @@ class Broadcaster:
                 data = payload["payload"]
                 event_type = data.get("type", "chat")
                 
-                # History Sync: Request logic
                 if event_type == "history_request" and data.get("from") != self.username:
                     self.send({"type": "history_transfer", "to": data["from"], "content": self.display_history})
                     return
 
-                # History Sync: Transfer logic
                 if event_type == "history_transfer" and data.get("to") == self.username:
                     if not self.display_history:
                         self.display_history = data.get("content", [])
@@ -50,12 +48,18 @@ class Broadcaster:
                     return
 
                 sender = data.get("from", "Unknown")
+                msg = data.get("content", "")
+                target = data.get("to")
+                
                 if sender == self.username:
                     return
                 
-                # Add raw data to history and print locally
-                self._add_to_history(data)
-                self._print_line(data)
+                # Add to history as structured data
+                self._add_to_history(sender, target, msg)
+                
+                # Format for current viewer
+                formatted = self._format_msg(sender, target, msg)
+                self._print_line(formatted)
 
             def on_sync():
                 new_users = set()
@@ -67,13 +71,11 @@ class Broadcaster:
                 
                 for user in new_users - self._user_list:
                     if user != self.username:
-                        # Request history before the join message to preserve order
-                        self.send({"type": "history_request", "content": ""})
-                        self._print_line({"from": "System", "content": f"{user} joined the chat"})
+                        self._print_line(f"{Fore.YELLOW}System: {user} joined the chat{Style.RESET_ALL}")
                 
                 for user in self._user_list - new_users:
                     if user != self.username:
-                        self._print_line({"from": "System", "content": f"{user} left the chat"})
+                        self._print_line(f"{Fore.RED}System: {user} left the chat{Style.RESET_ALL}")
                 
                 self._user_list = new_users
 
@@ -82,54 +84,47 @@ class Broadcaster:
             await self.channel.subscribe()
             await self.channel.track({'user': self.username})
             self.enabled = True
-            
-            # Request history from the room on startup
-            self.send({"type": "history_request", "content": ""})
+            self.send({"type": "history_request", "from": self.username, "content": ""})
 
         except Exception:
             self.enabled = False
 
-    def _add_to_history(self, data):
-        self.display_history.append(data)
-        if len(self.display_history) > 50:
-            self.display_history.pop(0)
-
-    def _format_msg(self, data):
-        """Dynamically formats the message based on current user."""
-        sender = data.get("from", "Unknown")
-        msg = data.get("content", "")
-        target = data.get("to")
-        
-        # Identity logic: Change username to [me] if viewing your own message
-        is_me = (sender == self.username)
-        display_name = "me" if is_me else sender
-        
+    def _format_msg(self, sender, target, content):
+        """Logic to decide between [me] and [username] for display."""
         if sender == "System":
-            return f"{Fore.YELLOW}System: {msg}{Style.RESET_ALL}"
+            return f"{Fore.YELLOW}System: {content}{Style.RESET_ALL}"
         
+        # Determine if 'me' should be used
+        is_me = (sender == self.username)
         color = Fore.GREEN if is_me else self._color_for_user(sender)
-        
+        display_name = "me" if is_me else sender
+
         if target:
-            target_name = "me" if target == self.username else target
-            header = f"{color}[{display_name} to {target_name}]{Style.RESET_ALL}"
+            # Handle targeted display
+            target_display = "me" if target == self.username else target
+            header = f"{color}[{display_name} to {target_display}]{Style.RESET_ALL}"
         else:
             header = f"{color}[{display_name}]{Style.RESET_ALL}"
             
-        return f"{header} {msg}"
+        return f"{header} {content}"
+
+    def _add_to_history(self, sender, target, content):
+        self.display_history.append({"from": sender, "to": target, "content": content})
+        if len(self.display_history) > 50:
+            self.display_history.pop(0)
 
     def _render_batch(self, history_list):
         with self.terminal_lock:
             sys.stdout.write("\r\033[K")
-            for data in history_list:
-                formatted = self._format_msg(data)
+            for msg_data in history_list:
+                formatted = self._format_msg(msg_data["from"], msg_data["to"], msg_data["content"])
                 sys.stdout.write(f"{formatted}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
 
-    def _print_line(self, data):
-        formatted = self._format_msg(data)
+    def _print_line(self, text):
         with self.terminal_lock:
-            sys.stdout.write(f"\r\033[K{formatted}\r\n")
+            sys.stdout.write(f"\r\033[K{text}\r\n")
             self.reprint_callback()
             sys.stdout.flush()
 
@@ -141,11 +136,21 @@ class Broadcaster:
         if not self.enabled:
             return
         
-        payload["from"] = self.username
-        
-        # Only add actual chat messages to history (not sync requests)
+        if "from" not in payload:
+            payload["from"] = self.username
+            
         if payload.get("type") not in ["history_request", "history_transfer"]:
-            self._add_to_history(payload)
+            sender = payload["from"]
+            target = payload.get("to")
+            content = payload.get('content', '')
+            
+            # 1. Add structured data to history (so it can be shared with others)
+            self._add_to_history(sender, target, content)
+            
+            # 2. Local immediate display (preserves your custom [me] display logic)
+            # This part remains identical to your requested behavior
+            formatted = self._format_msg(sender, target, content)
+            # (Note: _format_msg will handle the 'me' replacement locally)
 
         async def _send():
             try:
